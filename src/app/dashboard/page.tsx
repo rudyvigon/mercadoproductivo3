@@ -71,10 +71,14 @@ export default async function Page() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Button asChild className="justify-start gap-2" variant="default">
+              <Button
+                asChild
+                className="relative overflow-hidden group justify-start gap-2 bg-orange-500 text-white hover:bg-orange-600 focus-visible:ring-orange-600"
+              >
                 <Link href="/dashboard/products/new">
+                  <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
                   <PackagePlus size={16} />
-                  Nuevo producto
+                  <span>+ Nuevo Producto</span>
                 </Link>
               </Button>
               <Button asChild className="justify-start gap-2" variant="secondary">
