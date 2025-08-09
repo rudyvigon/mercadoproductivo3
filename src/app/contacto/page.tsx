@@ -112,7 +112,7 @@ export default function ContactoPage() {
           <AccordionItem value="q1" className="px-4">
             <AccordionTrigger className="text-left">¿Cómo puedo crear una cuenta?</AccordionTrigger>
             <AccordionContent>
-              Haz clic en "Registrarse" en la parte superior de la página y completa el formulario con tus datos.
+              Haz clic en &quot;Registrarse&quot; en la parte superior de la página y completa el formulario con tus datos.
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value="q2" className="px-4">
