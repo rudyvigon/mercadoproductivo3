@@ -16,6 +16,7 @@ export function toSpanishErrorMessage(err: unknown, fallback: string): string {
     [/invalid email/i, "Correo electrónico inválido"],
     [/password.*(too short|at least)/i, "La contraseña no cumple con la longitud mínima"],
     [/token has expired|invalid token/i, "El enlace o token es inválido o ha expirado"],
+    [/too many requests/i, "Has realizado demasiados intentos. Intenta más tarde"],
     [/rate limit/i, "Has realizado demasiados intentos. Intenta más tarde"],
     [/network|fetch failed/i, "Problemas de conexión. Intenta nuevamente"],
   ];

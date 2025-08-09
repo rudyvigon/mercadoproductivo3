@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { toSpanishErrorMessage } from "@/lib/i18n/errors";
 import { LogIn } from "lucide-react";
@@ -18,6 +18,7 @@ export default function LoginForm() {
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
+  const submittingRef = useRef(false);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -43,6 +44,8 @@ export default function LoginForm() {
   }
 
   async function onSubmit(values: LoginInput) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -57,6 +60,7 @@ export default function LoginForm() {
       toast.error(toSpanishErrorMessage(e, "Error al iniciar sesión"));
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
