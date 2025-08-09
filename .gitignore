@@ -1,0 +1,39 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js
+.next/
+out/
+.next/cache/
+
+# Build outputs
+/dist/
+/.turbo/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Vercel/Netlify
+.vercel/
+.netlify/
+
+# Coverage
+coverage/
+
+# Editor (permitimos .vscode en este repo porque contiene settings útiles)
+.idea/
+# .vscode/

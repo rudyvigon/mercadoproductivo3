@@ -1,0 +1,24 @@
+.cardSpotlight {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.75rem; /* rounded-xl */
+  /* La tarjeta puede recibir sus propias clases (border, bg, padding) desde className */
+}
+
+.cardSpotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    600px circle at var(--mouse-x, 0px) var(--mouse-y, 0px),
+    var(--spotlight-color, rgba(255, 255, 255, 0.25)),
+    transparent 40%
+  );
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.cardSpotlight:hover::before {
+  opacity: 1;
+}

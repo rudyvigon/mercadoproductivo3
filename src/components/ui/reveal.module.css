@@ -1,0 +1,17 @@
+.base {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 500ms ease, transform 500ms ease;
+  will-change: opacity, transform;
+}
+
+.visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Direcciones */
+.fromUp { transform: translateY(-10px); }
+.fromDown { transform: translateY(10px); }
+.fromLeft { transform: translateX(-12px); }
+.fromRight { transform: translateX(12px); }
