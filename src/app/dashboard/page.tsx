@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CalendarDays, CheckCircle2, PackagePlus, ShoppingBasket, UserRound } from "lucide-react";
+import { GuardedCreateButton } from "@/components/dashboard/guarded-create-button";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,25 @@ export default async function Page() {
   const firstName = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0] || user.email?.split("@")[0] || "Usuario";
   const role = (user.user_metadata?.role || "").toString();
   const emailVerified = Boolean(user.email_confirmed_at);
-  const lastSignIn = user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "-";
+  const lastSignIn = user.last_sign_in_at
+    ? new Date(user.last_sign_in_at).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })
+    : "-";
+
+  // Traer perfil y determinar campos requeridos para publicar
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, country, phone")
+    .eq("id", user.id)
+    .single();
+
+  const full_name = (profile?.full_name ?? user.user_metadata?.full_name ?? "").toString();
+  const country = (profile?.country ?? user.user_metadata?.country ?? "").toString();
+  const phone = (profile?.phone ?? user.user_metadata?.phone ?? "").toString();
+
+  const missingLabels: string[] = [];
+  if (!full_name.trim()) missingLabels.push("Nombre completo");
+  if (!country.trim()) missingLabels.push("País");
+  if (!phone.trim()) missingLabels.push("Teléfono");
 
   return (
     <main className="mx-auto max-w-6xl p-6 space-y-6">
@@ -71,16 +90,15 @@ export default async function Page() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Button
-                asChild
-                className="relative overflow-hidden group justify-start gap-2 bg-orange-500 text-white hover:bg-orange-600 focus-visible:ring-orange-600"
+              <GuardedCreateButton
+                href="/dashboard/products/new"
+                missingLabels={missingLabels}
+                className="relative overflow-hidden group inline-flex items-center justify-start gap-2 whitespace-nowrap rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow transition-colors hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-600"
               >
-                <Link href="/dashboard/products/new">
-                  <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
-                  <PackagePlus size={16} />
-                  <span>+ Nuevo Producto</span>
-                </Link>
-              </Button>
+                <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
+                <PackagePlus size={16} />
+                <span>+ Nuevo Producto</span>
+              </GuardedCreateButton>
               <Button asChild className="justify-start gap-2" variant="secondary">
                 <Link href="/dashboard/products">
                   <CheckCircle2 size={16} />
@@ -102,6 +120,36 @@ export default async function Page() {
             </div>
           </CardContent>
         </Card>
+
+        {missingLabels.length > 0 && (
+          <Card id="profile-requirements-card" className="md:col-span-2 xl:col-span-3">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Información requerida para publicar</CardTitle>
+              <CardDescription>Debes completar estos campos antes de publicar productos</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="list-disc space-y-2 pl-5 text-sm">
+                <li className="flex items-center justify-between">
+                  <span>Nombre completo</span>
+                  <Badge variant={full_name.trim() ? "default" : "secondary"}>{full_name.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>País</span>
+                  <Badge variant={country.trim() ? "default" : "secondary"}>{country.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Teléfono</span>
+                  <Badge variant={phone.trim() ? "default" : "secondary"}>{phone.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+              </ul>
+            </CardContent>
+            <CardFooter>
+              <Button asChild>
+                <Link href="/profile">Completar tu información</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
 
         <Card className="md:col-span-2 xl:col-span-3">
           <CardHeader className="pb-3">
