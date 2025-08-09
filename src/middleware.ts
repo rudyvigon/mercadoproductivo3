@@ -22,6 +22,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Evitar acceso a login/register si ya hay sesión iniciada
+  if (
+    session &&
+    (req.nextUrl.pathname === "/auth/login" || req.nextUrl.pathname === "/auth/register")
+  ) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/"; // Inicio
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   return res;
 }
 
@@ -30,5 +41,7 @@ export const config = {
     "/dashboard/:path*",
     "/profile/:path*",
     "/auth/callback",
+    "/auth/login",
+    "/auth/register",
   ],
 };
