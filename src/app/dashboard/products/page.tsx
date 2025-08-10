@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { PackagePlus } from "lucide-react";
 
 export default async function ProductsDashboardPage() {
   const supabase = createClient();
@@ -22,8 +22,8 @@ export default async function ProductsDashboardPage() {
         >
           <Link href="/dashboard/products/new">
             <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
-            <Plus size={16} />
-            <span>+ Nuevo Producto</span>
+            <PackagePlus size={16} />
+            <span>Nuevo Producto</span>
           </Link>
         </Button>
       </div>

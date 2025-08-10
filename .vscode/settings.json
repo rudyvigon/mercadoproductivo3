@@ -8,5 +8,12 @@
 
   "editor.quickSuggestions": {
     "strings": true
-  }
+  },
+
+  // Git: desactivar automatismos para manejar manualmente
+  "git.autofetch": false,
+  "git.enableSmartCommit": false,
+  "git.suggestSmartCommit": false,
+  "git.postCommitCommand": "none",
+  "git.confirmSync": true
 }

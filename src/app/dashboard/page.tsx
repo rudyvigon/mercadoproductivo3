@@ -1,12 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import SignOutButton from "@/components/auth/signout-button";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, CheckCircle2, PackagePlus, ShoppingBasket, UserRound } from "lucide-react";
+import { CheckCircle2, PackagePlus, ShoppingBasket } from "lucide-react";
 import { GuardedCreateButton } from "@/components/dashboard/guarded-create-button";
+import ProfileFormCard from "@/components/profile/profile-form-card";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,8 @@ export default async function Page() {
     redirect("/auth/login");
   }
 
-  const firstName = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0] || user.email?.split("@")[0] || "Usuario";
+  // Nombre para saludo
+  const firstNameFromMeta = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0];
   const role = (user.user_metadata?.role || "").toString();
   const emailVerified = Boolean(user.email_confirmed_at);
   const lastSignIn = user.last_sign_in_at
@@ -30,18 +31,32 @@ export default async function Page() {
   // Traer perfil y determinar campos requeridos para publicar
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, country, phone")
+    .select("first_name, last_name, full_name, dni_cuit, company, address, city, province, postal_code")
     .eq("id", user.id)
     .single();
 
-  const full_name = (profile?.full_name ?? user.user_metadata?.full_name ?? "").toString();
-  const country = (profile?.country ?? user.user_metadata?.country ?? "").toString();
-  const phone = (profile?.phone ?? user.user_metadata?.phone ?? "").toString();
+  const p_first = (profile?.first_name ?? user.user_metadata?.first_name ?? "").toString();
+  const p_last = (profile?.last_name ?? user.user_metadata?.last_name ?? "").toString();
+  const full_name = (profile?.full_name ?? `${p_first} ${p_last}`).toString().trim();
+  const p_email = (user.email ?? "").toString();
+  const p_dni_cuit = (profile?.dni_cuit ?? "").toString();
+  const p_company = (profile?.company ?? "").toString();
+  const p_address = (profile?.address ?? "").toString();
+  const p_city = (profile?.city ?? "").toString();
+  const p_province = (profile?.province ?? "").toString();
+  const p_cp = (profile?.postal_code ?? "").toString();
+
+  const firstName = p_first || firstNameFromMeta || user.email?.split("@")[0] || "Usuario";
 
   const missingLabels: string[] = [];
-  if (!full_name.trim()) missingLabels.push("Nombre completo");
-  if (!country.trim()) missingLabels.push("País");
-  if (!phone.trim()) missingLabels.push("Teléfono");
+  if (!p_first.trim()) missingLabels.push("Nombre");
+  if (!p_last.trim()) missingLabels.push("Apellido");
+  if (!p_email.trim()) missingLabels.push("Email");
+  if (!p_dni_cuit.trim()) missingLabels.push("DNI o CUIT");
+  if (!p_address.trim()) missingLabels.push("Dirección");
+  if (!p_city.trim()) missingLabels.push("Localidad");
+  if (!p_province.trim()) missingLabels.push("Provincia");
+  if (!p_cp.trim()) missingLabels.push("Código Postal");
 
   return (
     <main className="mx-auto max-w-6xl p-6 space-y-6">
@@ -49,9 +64,6 @@ export default async function Page() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Panel de control</h1>
           <p className="text-muted-foreground">Bienvenido, {firstName}.</p>
-        </div>
-        <div className="shrink-0">
-          <SignOutButton />
         </div>
       </div>
 
@@ -111,12 +123,7 @@ export default async function Page() {
                   Marketplace
                 </Link>
               </Button>
-              <Button asChild className="justify-start gap-2" variant="outline">
-                <Link href="/profile">
-                  <UserRound size={16} />
-                  Editar perfil
-                </Link>
-              </Button>
+              {/* Acceso a Editar perfil removido: el perfil se gestiona en este dashboard */}
             </div>
           </CardContent>
         </Card>
@@ -130,44 +137,49 @@ export default async function Page() {
             <CardContent>
               <ul className="list-disc space-y-2 pl-5 text-sm">
                 <li className="flex items-center justify-between">
-                  <span>Nombre completo</span>
-                  <Badge variant={full_name.trim() ? "default" : "secondary"}>{full_name.trim() ? "Completo" : "Pendiente"}</Badge>
+                  <span>Nombre</span>
+                  <Badge variant={p_first.trim() ? "default" : "secondary"}>{p_first.trim() ? "Completo" : "Pendiente"}</Badge>
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>País</span>
-                  <Badge variant={country.trim() ? "default" : "secondary"}>{country.trim() ? "Completo" : "Pendiente"}</Badge>
+                  <span>Apellido</span>
+                  <Badge variant={p_last.trim() ? "default" : "secondary"}>{p_last.trim() ? "Completo" : "Pendiente"}</Badge>
                 </li>
                 <li className="flex items-center justify-between">
-                  <span>Teléfono</span>
-                  <Badge variant={phone.trim() ? "default" : "secondary"}>{phone.trim() ? "Completo" : "Pendiente"}</Badge>
+                  <span>Email</span>
+                  <Badge variant={p_email.trim() ? "default" : "secondary"}>{p_email.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>DNI o CUIT</span>
+                  <Badge variant={p_dni_cuit.trim() ? "default" : "secondary"}>{p_dni_cuit.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Dirección</span>
+                  <Badge variant={p_address.trim() ? "default" : "secondary"}>{p_address.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Localidad</span>
+                  <Badge variant={p_city.trim() ? "default" : "secondary"}>{p_city.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Provincia</span>
+                  <Badge variant={p_province.trim() ? "default" : "secondary"}>{p_province.trim() ? "Completo" : "Pendiente"}</Badge>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Código Postal</span>
+                  <Badge variant={p_cp.trim() ? "default" : "secondary"}>{p_cp.trim() ? "Completo" : "Pendiente"}</Badge>
                 </li>
               </ul>
             </CardContent>
             <CardFooter>
               <Button asChild>
-                <Link href="/profile">Completar tu información</Link>
+                <a href="#profile-form-card">Completar tu información</a>
               </Button>
             </CardFooter>
           </Card>
         )}
 
-        <Card className="md:col-span-2 xl:col-span-3">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Próximos pasos</CardTitle>
-            <CardDescription>Recomendaciones para sacarle provecho</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-2 pl-5 text-sm">
-              <li>Completa tu perfil con datos de contacto y empresa.</li>
-              <li>Publica tu primer producto desde <span className="underline"><Link href="/dashboard/products/new">Nuevo producto</Link></span>.</li>
-              <li>Explora el <span className="underline"><Link href="/catalog">Marketplace</Link></span> y guarda favoritos.</li>
-              <li>Revisa tus productos en <span className="underline"><Link href="/dashboard/products">Mis productos</Link></span>.</li>
-            </ul>
-          </CardContent>
-          <CardFooter className="text-xs text-muted-foreground">
-            Última actualización: {new Date().toLocaleDateString()}
-          </CardFooter>
-        </Card>
+        {/* Tarjeta de Perfil embebida con modo edición/lectura */}
+        <ProfileFormCard />
       </section>
     </main>
   );

@@ -1,12 +1,19 @@
 import LoginForm from "@/components/auth/login-form";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
   title: "Iniciar sesión | Mercado Productivo",
 };
 
-export default function Page() {
+export default async function Page() {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    redirect("/");
+  }
   return (
     <Card className="w-full shadow-lg">
       <CardHeader className="space-y-1">
