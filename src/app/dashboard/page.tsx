@@ -1,14 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, PackagePlus, ShoppingBasket } from "lucide-react";
-import { GuardedCreateButton } from "@/components/dashboard/guarded-create-button";
-import ProfileFormCard from "@/components/profile/profile-form-card";
+import { UsageRadial, CountdownUntil } from "@/components/dashboard/kpi-charts";
+
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function Page() {
   const supabase = createClient();
@@ -22,18 +21,33 @@ export default async function Page() {
 
   // Nombre para saludo
   const firstNameFromMeta = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0];
-  const role = (user.user_metadata?.role || "").toString();
   const emailVerified = Boolean(user.email_confirmed_at);
-  const lastSignIn = user.last_sign_in_at
-    ? new Date(user.last_sign_in_at).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })
-    : "-";
+  const role = (user.user_metadata?.role || "").toString();
+  // Plan: preferir DB (profiles.plan_code); metadata como fallback
+  const metaPlan = (user.user_metadata?.plan || user.user_metadata?.plan_code || "").toString();
+  let planRaw = "";
 
   // Traer perfil y determinar campos requeridos para publicar
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("first_name, last_name, full_name, dni_cuit, company, address, city, province, postal_code")
+    .select("first_name, last_name, full_name, dni_cuit, company, address, city, province, postal_code, plan_code, updated_at")
     .eq("id", user.id)
     .single();
+
+  planRaw = (profile?.plan_code || "").toString() || metaPlan;
+  const planMap: Record<string, string> = {
+    free: "Básico",
+    basic: "Básico",
+    premium: "Premium",
+    pro: "Premium",
+    plus: "Plus",
+    enterprise: "Plus",
+  };
+  let planLabel = planRaw ? (planMap[planRaw.toLowerCase()] ?? (planRaw.charAt(0).toUpperCase() + planRaw.slice(1))) : "—";
+  if (planLabel === "—" && role === "anunciante") {
+    // Fallback visual: si es anunciante pero aún no tiene plan_code, mostrar Básico
+    planLabel = "Básico";
+  }
 
   const p_first = (profile?.first_name ?? user.user_metadata?.first_name ?? "").toString();
   const p_last = (profile?.last_name ?? user.user_metadata?.last_name ?? "").toString();
@@ -49,25 +63,74 @@ export default async function Page() {
   const firstName = p_first || firstNameFromMeta || user.email?.split("@")[0] || "Usuario";
 
   const missingLabels: string[] = [];
-  if (!p_first.trim()) missingLabels.push("Nombre");
-  if (!p_last.trim()) missingLabels.push("Apellido");
-  if (!p_email.trim()) missingLabels.push("Email");
-  if (!p_dni_cuit.trim()) missingLabels.push("DNI o CUIT");
-  if (!p_address.trim()) missingLabels.push("Dirección");
-  if (!p_city.trim()) missingLabels.push("Localidad");
-  if (!p_province.trim()) missingLabels.push("Provincia");
-  if (!p_cp.trim()) missingLabels.push("Código Postal");
+  const notEmpty = (s: string) => (s ?? "").toString().trim().length > 0;
+  if (!notEmpty(p_first)) missingLabels.push("Nombre");
+  if (!notEmpty(p_last)) missingLabels.push("Apellido");
+  if (!notEmpty(p_email)) missingLabels.push("Email");
+  if (!notEmpty(p_dni_cuit)) missingLabels.push("DNI o CUIT");
+  if (!notEmpty(p_address)) missingLabels.push("Dirección");
+  if (!notEmpty(p_city)) missingLabels.push("Localidad");
+  if (!notEmpty(p_province)) missingLabels.push("Provincia");
+  if (!notEmpty(p_cp)) missingLabels.push("Código Postal");
+
+  // Datos adicionales para tarjetas de métricas
+  const planCode = (profile?.plan_code || metaPlan || "").toString();
+  const { count: productsCount } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  const { data: plan } = planCode
+    ? await supabase
+        .from("plans")
+        .select("code, name, max_products, credits_monthly")
+        .eq("code", planCode)
+        .single()
+    : ({ data: null } as const);
+
+  const now = new Date();
+  const periodYM = now.getFullYear() * 100 + (now.getMonth() + 1); // YYYYMM
+  const { data: usage } = await supabase
+    .from("usage_counters")
+    .select("credits_used")
+    .eq("user_id", user.id)
+    .eq("period_ym", periodYM)
+    .maybeSingle();
+
+  const creditsUsed = usage?.credits_used ?? 0;
+  const creditsMonthly = plan?.credits_monthly ?? 0;
+  const maxProducts = plan?.max_products ?? null;
+
+  // (Gráfico de actividad removido)
+
+  // Expiración estimada: 1 mes desde activación; fallback a updated_at cuando haya plan
+  const activatedAt = planCode ? (profile as any)?.updated_at ?? null : null;
+  let expiresAt: string | null = null;
+  if (activatedAt) {
+    const d = new Date(activatedAt);
+    d.setMonth(d.getMonth() + 1);
+    expiresAt = d.toISOString();
+  }
+
+  const fmt = (d?: string | null) => {
+    if (!d) return "—";
+    try {
+      return new Date(d).toLocaleDateString("es-AR", { year: "numeric", month: "short", day: "2-digit" });
+    } catch {
+      return "—";
+    }
+  };
 
   return (
-    <main className="mx-auto max-w-6xl p-6 space-y-6">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto max-w-6xl p-4 space-y-4 sm:p-6 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Panel de control</h1>
-          <p className="text-muted-foreground">Bienvenido, {firstName}.</p>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Panel de control</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">Bienvenido, {firstName}.</p>
         </div>
       </div>
 
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+      <section className="space-y-6">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Resumen</CardTitle>
@@ -79,8 +142,8 @@ export default async function Page() {
               <span className="font-medium">{user.email}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Rol</span>
-              <span className="font-medium">{role || "—"}</span>
+              <span className="text-muted-foreground">Plan</span>
+              <span className="font-medium">{planLabel}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Verificación</span>
@@ -88,54 +151,71 @@ export default async function Page() {
                 {emailVerified ? "Verificado" : "No verificado"}
               </Badge>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Último acceso</span>
-              <span className="font-medium">{lastSignIn}</span>
-            </div>
+            {/* Enlace a detalles del plan removido */}
           </CardContent>
         </Card>
 
-        <Card className="xl:col-span-2">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Accesos rápidos</CardTitle>
-            <CardDescription>Comienza a gestionar tu cuenta</CardDescription>
+            <CardTitle className="text-lg">Métricas de uso</CardTitle>
+            <CardDescription>Resumen del mes actual</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <GuardedCreateButton
-                href="/dashboard/products/new"
-                missingLabels={missingLabels}
-                className="relative overflow-hidden group inline-flex items-center justify-start gap-2 whitespace-nowrap rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow transition-colors hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-600"
-              >
-                <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
-                <PackagePlus size={16} />
-                <span>+ Nuevo Producto</span>
-              </GuardedCreateButton>
-              <Button asChild className="justify-start gap-2" variant="secondary">
-                <Link href="/dashboard/products">
-                  <CheckCircle2 size={16} />
-                  Mis productos
-                </Link>
-              </Button>
-              <Button asChild className="justify-start gap-2" variant="outline">
-                <Link href="/catalog">
-                  <ShoppingBasket size={16} />
-                  Marketplace
-                </Link>
-              </Button>
-              {/* Acceso a Editar perfil removido: el perfil se gestiona en este dashboard */}
+          <CardContent className="text-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+              <div className="rounded-md border p-4">
+                <UsageRadial
+                  label="Productos"
+                  value={productsCount ?? 0}
+                  max={maxProducts}
+                  color="#8b5cf6"
+                  layout="stacked"
+                  size={148}
+                  barSize={14}
+                  showCenter={false}
+                />
+              </div>
+              <div className="rounded-md border p-4">
+                <UsageRadial
+                  label="Créditos (mes)"
+                  value={creditsUsed}
+                  max={creditsMonthly || null}
+                  color="#f06d04"
+                  layout="stacked"
+                  size={148}
+                  barSize={14}
+                  showCenter={false}
+                />
+              </div>
+              <div className="rounded-md border p-4">
+                {/* Tarjeta de Ofertas removida */}
+              </div>
+              <div className="rounded-md border p-4">
+                <CountdownUntil
+                  label="Expira en"
+                  startISO={activatedAt as any}
+                  targetISO={expiresAt}
+                  color="#10b981"
+                  layout="stacked"
+                  size={148}
+                  barSize={14}
+                  showCenter={false}
+                />
+              </div>
             </div>
+            {/* Gráfico de líneas removido */}
           </CardContent>
         </Card>
+
+        
 
         {missingLabels.length > 0 && (
-          <Card id="profile-requirements-card" className="md:col-span-2 xl:col-span-3">
+          <Card id="profile-requirements-card">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Información requerida para publicar</CardTitle>
               <CardDescription>Debes completar estos campos antes de publicar productos</CardDescription>
             </CardHeader>
             <CardContent>
-              <ul className="list-disc space-y-2 pl-5 text-sm">
+              <ul className="list-disc space-y-2 pl-4 text-xs sm:pl-5 sm:text-sm">
                 <li className="flex items-center justify-between">
                   <span>Nombre</span>
                   <Badge variant={p_first.trim() ? "default" : "secondary"}>{p_first.trim() ? "Completo" : "Pendiente"}</Badge>
@@ -172,15 +252,14 @@ export default async function Page() {
             </CardContent>
             <CardFooter>
               <Button asChild>
-                <a href="#profile-form-card">Completar tu información</a>
+                <a href="/dashboard/profile#profile-form-card">Completar tu información</a>
               </Button>
             </CardFooter>
           </Card>
         )}
 
-        {/* Tarjeta de Perfil embebida con modo edición/lectura */}
-        <ProfileFormCard />
+        {/* El formulario de perfil se movió a /dashboard/profile para mantener el dashboard limpio */}
       </section>
-    </main>
+    </div>
   );
 }

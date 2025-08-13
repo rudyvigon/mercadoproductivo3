@@ -1,10 +1,28 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+let supabaseHostname = undefined;
+try {
+  if (SUPABASE_URL) {
+    supabaseHostname = new URL(SUPABASE_URL).hostname;
+  }
+} catch {}
 
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: ['xsgcscgdzbhiphgyzbfm.supabase.co', 'images.unsplash.com', 'plus.unsplash.com'],
+    remotePatterns: [
+      // Hostname dinámico desde la URL del proyecto Supabase (recomendado)
+      ...(supabaseHostname
+        ? [{ protocol: 'https', hostname: supabaseHostname, pathname: '/storage/v1/object/public/**' }]
+        : []),
+      // Permitir cualquier proyecto de Supabase (útil si cambian entornos)
+      { protocol: 'https', hostname: '*.supabase.co', pathname: '/storage/v1/object/public/**' },
+      // Fallback explícito por si se utiliza otro proyecto localmente
+      { protocol: 'https', hostname: 'xsgcscgdzbhiphgyzbfm.supabase.co', pathname: '/storage/v1/object/public/**' },
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+      { protocol: 'https', hostname: 'plus.unsplash.com' },
+    ],
   },
   webpack: (config) => {
     // Configurar alias para rutas absolutas

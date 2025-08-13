@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { toSpanishErrorMessage } from "@/lib/i18n/errors";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function isValidDniCuit(raw: string): boolean {
   const digits = (raw || "").replace(/\D/g, "");
@@ -63,6 +64,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   const supabase = useMemo(() => createClient(), []);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const existingPlanCodeRef = useRef<string | null>(null);
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     mode: "onChange",
@@ -123,61 +125,67 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     []
   );
 
+  // Utilidades: normalizar nombres para igualar contra opciones (quita acentos y pasa a minúsculas)
+  const normalize = (s: string) =>
+    (s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  const provinceCanonical = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of provinces) {
+      map.set(normalize(p), p);
+    }
+    return (raw: string) => map.get(normalize(raw)) || raw;
+  }, [provinces]);
+
   const [localities, setLocalities] = useState<string[]>([]);
   const [loadingLocalities, setLoadingLocalities] = useState(false);
+  const isInitializing = useRef(true);
+
+  // Helper para cargar localidades de una provincia
+  const loadLocalities = async (prov: string, preserveCity: boolean) => {
+    if (!prov) {
+      setLocalities([]);
+      return;
+    }
+    try {
+      setLoadingLocalities(true);
+      const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(prov)}&max=500`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Error al cargar localidades");
+      const data = await res.json();
+      const items: string[] = (data?.localidades || []).map((l: any) => l?.nombre).filter(Boolean).sort();
+      const currentCity = form.getValues("city");
+      if (preserveCity && currentCity && !items.includes(currentCity)) {
+        setLocalities([currentCity, ...items]);
+      } else {
+        setLocalities(items);
+      }
+    } catch (e) {
+      console.warn("Fallo carga de localidades (helper)", e);
+      setLocalities([]);
+    } finally {
+      setLoadingLocalities(false);
+    }
+  };
 
   // Cargar localidades cuando cambia provincia
   useEffect(() => {
     const subscription = form.watch(async (value, { name }) => {
       if (name === "province") {
+        // Evitar borrar 'city' cuando el cambio de provincia proviene de form.reset inicial
+        if (isInitializing.current) return;
         const prov = value.province as string;
         // Reiniciar ciudad
         form.setValue("city", "");
         setLocalities([]);
-        if (!prov) return;
-        try {
-          setLoadingLocalities(true);
-          const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(
-            prov
-          )}&max=500`;
-          const res = await fetch(url);
-          if (!res.ok) throw new Error("Error al cargar localidades");
-          const data = await res.json();
-          const items: string[] = (data?.localidades || []).map((l: any) => l?.nombre).filter(Boolean).sort();
-          setLocalities(items);
-        } catch (e) {
-          console.warn("Fallo carga de localidades", e);
-          setLocalities([]);
-        } finally {
-          setLoadingLocalities(false);
-        }
+        await loadLocalities(prov, false);
       }
     });
     return () => subscription.unsubscribe();
   }, [form]);
-
-  // Si ya hay provincia cargada (por datos existentes), cargar localidades al montar
-  useEffect(() => {
-    const prov = form.getValues("province");
-    if (!prov || localities.length > 0) return;
-    (async () => {
-      try {
-        setLoadingLocalities(true);
-        const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(
-          prov
-        )}&max=500`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("Error al cargar localidades");
-        const data = await res.json();
-        const items: string[] = (data?.localidades || []).map((l: any) => l?.nombre).filter(Boolean).sort();
-        setLocalities(items);
-      } catch (e) {
-        console.warn("Fallo carga de localidades (init)", e);
-      } finally {
-        setLoadingLocalities(false);
-      }
-    })();
-  }, [form, localities.length]);
 
   useEffect(() => {
     let mounted = true;
@@ -189,7 +197,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       }
       const { data, error } = await supabase
         .from("profiles")
-        .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code")
+        .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code")
         .eq("id", user.id)
         .single();
       if (!mounted) return;
@@ -204,11 +212,21 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         dni_cuit: data?.dni_cuit ?? "",
         company: data?.company ?? "",
         address: data?.address ?? "",
-        city: data?.city ?? "",
-        province: data?.province ?? "",
+        city: (data?.city ?? ""),
+        province: provinceCanonical(data?.province ?? ""),
         cp: data?.postal_code ?? "",
       });
+      existingPlanCodeRef.current = (data?.plan_code ?? null) as any;
+      // Cargar localidades para la provincia reseteada y preservar la ciudad existente
+      const provToLoad = provinceCanonical(data?.province ?? "");
+      if (provToLoad) {
+        await loadLocalities(provToLoad, true);
+      } else {
+        setLocalities([]);
+      }
       setLoading(false);
+      // A partir de aquí, los cambios de provincia ya son del usuario
+      isInitializing.current = false;
     })();
     return () => { mounted = false; };
   }, [form, supabase]);
@@ -220,7 +238,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       if (!user) throw new Error("No autenticado");
       const full_name = `${values.first_name} ${values.last_name}`.trim();
       const dniCuitSanitized = (values.dni_cuit || "").replace(/\D/g, "");
-      const payload = {
+      const payload: any = {
         first_name: values.first_name,
         last_name: values.last_name,
         full_name,
@@ -231,12 +249,33 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         province: values.province,
         postal_code: values.cp,
         updated_at: new Date().toISOString(),
-      } as const;
+      };
+      // Si es anunciante y aún no tiene plan_code, asignar 'free' por defecto
+      const role = (user.user_metadata as any)?.role as string | undefined;
+      if (role === "anunciante" && !existingPlanCodeRef.current) {
+        payload.plan_code = "free";
+      }
       const { error } = await supabase
         .from("profiles")
         .upsert({ id: user.id, ...payload }, { onConflict: "id" });
       if (error) throw error;
+      // Actualizar metadata de auth para reflejar el nombre en listeners de auth
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            full_name,
+            first_name: values.first_name,
+            last_name: values.last_name,
+          },
+        });
+      } catch {}
       toast.success("Perfil actualizado");
+      try {
+        // Notificar en tiempo real al header sin depender de Realtime
+        window.dispatchEvent(
+          new CustomEvent("profile:updated", { detail: payload as any })
+        );
+      } catch {}
       onSaved?.();
     } catch (e: any) {
       console.error(e);
@@ -254,7 +293,48 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   }, [form, registerSubmit, onSubmit]);
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Cargando perfil...</div>;
+    return (
+      <div className="space-y-5" aria-busy>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="space-y-2 lg:col-span-1">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-2 lg:col-span-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-2 lg:col-span-1">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const allDisabled = disabled || saving;

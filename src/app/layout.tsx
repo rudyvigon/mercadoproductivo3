@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import AppShell from "@/components/layout/app-shell";
+import GlobalMobileMenu from "@/components/layout/global-mobile-menu";
 
 export const metadata: Metadata = {
   title: "Mercado Productivo",
@@ -17,7 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" suppressHydrationWarning>
       <body className={`min-h-screen antialiased ${inter.className}`}>
         <ThemeProvider>
-          <AppShell>{children}</AppShell>
+          <AppShell>
+            {children}
+            <GlobalMobileMenu />
+          </AppShell>
           <Toaster richColors theme="light" position="top-center" />
         </ThemeProvider>
       </body>
