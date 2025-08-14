@@ -11,7 +11,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isAuth = pathname?.startsWith("/auth");
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className={`flex min-h-screen flex-col ${!isAuth ? 'pt-14 sm:pt-16' : ''}`}>
       {/* Sincroniza la cookie de sesión de Supabase en cliente */}
       <SupabaseListener />
       {!isAuth && <SiteHeader />}

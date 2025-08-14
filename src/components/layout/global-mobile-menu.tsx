@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -39,7 +39,8 @@ export default function GlobalMobileMenu() {
   const [profileName, setProfileName] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const pathname = usePathname();
-  const supabase = createClient();
+  // Memoizar el cliente para que la identidad sea estable entre renders
+  const supabase = useMemo(() => createClient(), []);
 
   // Verifica si un enlace está activo
   const isActive = (href: string) => {
@@ -71,7 +72,7 @@ export default function GlobalMobileMenu() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase]);
 
   // Cargar nombre desde perfil
   useEffect(() => {

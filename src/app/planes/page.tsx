@@ -4,13 +4,54 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { headers } from "next/headers";
+import { Check, X, Image as ImageIcon, Package as PackageIcon, Coins, Sparkles, Infinity as InfinityIcon } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Planes de Suscripción | Mercado Productivo",
   description: "Planes flexibles para emprendedores, PyMEs y empresas. Elige el plan perfecto para tu negocio.",
 };
 
-export default function PlanesPage() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type PlanRow = {
+  code: string;
+  name: string | null;
+  max_products: number | null;
+  max_images_per_product: number | null;
+  credits_monthly: number | null;
+  can_feature?: boolean | null;
+  feature_cost?: number | null;
+};
+
+export default async function PlanesPage() {
+  // Consumir el endpoint interno que usa Service Role
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const baseUrl = host ? `${proto}://${host}` : "";
+  let plans: PlanRow[] = [];
+  let endpointError: string | null = null;
+  try {
+    const res = await fetch(`${baseUrl}/api/public/plans`, { cache: "no-store" });
+    if (res.ok) {
+      const json = await res.json();
+      plans = Array.isArray(json?.plans) ? json.plans : [];
+    } else {
+      let msg = `GET /api/public/plans status ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) msg += ` - ${errJson.message}`;
+        if (errJson?.error) msg += ` (${errJson.error})`;
+      } catch {}
+      endpointError = msg;
+      console.error(msg);
+    }
+  } catch (e: any) {
+    console.error("Error fetch /api/public/plans", e?.message || e);
+    endpointError = e?.message || "Fallo de red";
+  }
   return (
     <main className="mx-auto max-w-6xl p-4 space-y-6 sm:p-6 sm:space-y-8">
       {/* Hero */}
@@ -24,97 +65,180 @@ export default function PlanesPage() {
 
       {/* Plans */}
       <div className="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Básico */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg sm:text-xl">Básico</CardTitle>
-            <CardDescription>Perfecto para comenzar</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">Gratis</div>
-            <div className="mt-4 space-y-2 text-sm">
-              <p className="font-medium">Incluye:</p>
-              <ul className="list-inside space-y-1 text-muted-foreground">
-                <li>• 5 productos máximo</li>
-                <li>• 1 imagen por producto</li>
-                <li>• Soporte por email</li>
-                <li>• Búsqueda básica</li>
-                <li>• Perfil básico</li>
-              </ul>
-              <p className="mt-4 font-medium">Limitaciones:</p>
-              <ul className="list-inside space-y-1 text-muted-foreground">
-                <li>• Sin créditos mensuales</li>
-                <li>• Prioridad baja en búsquedas</li>
-              </ul>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button asChild className="w-full">
-              <Link href="/dashboard">Comenzar Gratis</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* Premium - Más Popular */}
-        <Card className="relative overflow-hidden border-primary/40 shadow-lg shadow-primary/5">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-            <Badge className="px-3 py-1" variant="default">Más Popular</Badge>
-          </div>
-          <CardHeader>
-            <CardTitle className="text-xl">Premium</CardTitle>
-            <CardDescription>Ideal para pequeños negocios</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">$29/mes</div>
-            <div className="mt-4 space-y-2 text-sm">
-              <p className="font-medium">Incluye:</p>
-              <ul className="list-inside space-y-1 text-muted-foreground">
-                <li>• 50 productos máximo</li>
-                <li>• 5 imágenes por producto</li>
-                <li>• 100 créditos mensuales</li>
-                <li>• Prioridad media en búsquedas</li>
-                <li>• Analytics avanzados</li>
-                <li>• Soporte por email y chat</li>
-                <li>• SLA 99.5%</li>
-              </ul>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button asChild className="w-full" variant="default">
-              <Link href="/dashboard">Elegir Premium</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* Plus */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xl">Plus</CardTitle>
-            <CardDescription>Para negocios en crecimiento</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">$79/mes</div>
-            <div className="mt-4 space-y-2 text-sm">
-              <p className="font-medium">Incluye:</p>
-              <ul className="list-inside space-y-1 text-muted-foreground">
-                <li>• Productos ilimitados</li>
-                <li>• 10 imágenes por producto</li>
-                <li>• 500 créditos mensuales</li>
-                <li>• Prioridad alta en búsquedas</li>
-                <li>• Analytics premium</li>
-                <li>• Soporte prioritario</li>
-                <li>• API completa</li>
-                <li>• SLA 99.9%</li>
-              </ul>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button asChild className="w-full" variant="outline">
-              <Link href="/dashboard">Elegir Plus</Link>
-            </Button>
-          </CardFooter>
-        </Card>
+        {plans.map((p, idx) => {
+          const code = (p.code || "").toLowerCase();
+          const label = p.name || p.code || "Plan";
+          const maxProducts = p.max_products ?? null;
+          const maxImages = p.max_images_per_product ?? null;
+          const credits = p.credits_monthly ?? 0;
+          const canFeature = Boolean(p.can_feature ?? true);
+          const featureCost = typeof p.feature_cost === "number" ? p.feature_cost : (p.feature_cost ? Number(p.feature_cost) : null);
+          const isPopular = code === "premium" || code === "pro"; // Heurística simple si no hay flag en BD
+          const isFirst = idx === 0;
+          const isSecond = idx === 1;
+          const isThird = idx === 2;
+          const btnVariant = isThird ? "default" : "outline";
+          const btnClass =
+            "w-full " +
+            (isFirst
+              ? "bg-white text-black hover:bg-white/90 "
+              : isSecond
+              ? "bg-white text-primary hover:bg-white/90 border-primary "
+              : isThird
+              ? "shadow-none hover:shadow-[0_0_24px_rgba(249,115,22,0.45)] transition-shadow "
+              : "bg-white text-black hover:bg-white/90 ");
+          return (
+            <Card
+              key={p.code}
+              className={
+                isPopular
+                  ? "relative flex h-full flex-col overflow-hidden ring-1 ring-primary/50 border-primary/40 shadow-lg shadow-primary/10 transition hover:shadow-xl"
+                  : "relative flex h-full flex-col overflow-hidden transition hover:shadow-md"
+              }
+            >
+              {isPopular && (
+                <div className="absolute top-3 right-3">
+                  <Badge className="px-3 py-1" variant="default">Más Popular</Badge>
+                </div>
+              )}
+              <CardHeader>
+                <CardTitle className="text-lg sm:text-xl">{label}</CardTitle>
+                <CardDescription className="capitalize">{code}</CardDescription>
+              </CardHeader>
+              <CardContent className="grow">
+                <div className="mt-1 space-y-3 text-sm">
+                  <p className="font-medium">Incluye:</p>
+                  <ul className="space-y-2 text-muted-foreground">
+                    <li className="flex items-center gap-2">
+                      <PackageIcon className="h-4 w-4 text-primary" />
+                      <span>{maxProducts ? `${maxProducts} producto(s) máximo` : "Productos ilimitados"}</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4 text-primary" />
+                      <span>{maxImages ?? "—"} imagen(es) por producto</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      {credits > 0 ? (
+                        <Coins className="h-4 w-4 text-primary" />
+                      ) : (
+                        <X className="h-4 w-4 text-primary" />
+                      )}
+                      <span title="Créditos mensuales que puedes usar para acciones como destacar productos.">
+                        {credits > 0 ? `${credits} crédito(s) mensuales` : "Sin créditos mensuales"}
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      {canFeature ? (
+                        <Sparkles className="h-4 w-4 text-primary" />
+                      ) : (
+                        <X className="h-4 w-4 text-primary" />
+                      )}
+                      <span>
+                        {canFeature
+                          ? `Puede destacar productos${featureCost ? ` (costo ${featureCost})` : ""}`
+                          : "No puede destacar productos"}
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              </CardContent>
+              <CardFooter className="mt-auto">
+                {isThird ? (
+                  <Button
+                    asChild
+                    className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
+                    variant="default"
+                  >
+                    <Link href="/dashboard">
+                      <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]"></span>
+                      <span>Comienza con {label}</span>
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button
+                    asChild
+                    className={btnClass}
+                    variant={btnVariant}
+                  >
+                    <Link href="/dashboard">Comienza con {label}</Link>
+                  </Button>
+                )}
+              </CardFooter>
+            </Card>
+          );
+        })}
+        {(!plans || plans.length === 0) && (
+          <Card className="md:col-span-2 lg:col-span-3">
+            <CardHeader>
+              <CardTitle className="text-lg">Planes no disponibles</CardTitle>
+              <CardDescription>Configura la tabla <code>plans</code> en Supabase para verlos aquí.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>No encontramos planes para mostrar. Intenta más tarde.</p>
+              {endpointError && (
+                <p className="text-xs">Diagnóstico: {endpointError}</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {/* Comparador de planes */}
+      {plans && plans.length > 0 && (
+        <section className="mt-10 space-y-4">
+          <h2 className="text-xl font-semibold tracking-tight">Comparar planes</h2>
+          <div className="overflow-x-auto rounded-lg border bg-card">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Característica</th>
+                  {plans.map((p) => (
+                    <th key={`h-${p.code}`} className="px-4 py-3 text-left font-medium">
+                      {p.name || p.code}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Productos máximos</td>
+                  {plans.map((p) => (
+                    <td key={`r-prod-${p.code}`} className="px-4 py-3">
+                      {p.max_products ? p.max_products : (
+                        <span className="inline-flex items-center gap-1"><InfinityIcon className="h-4 w-4" /> Ilimitados</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Imágenes por producto</td>
+                  {plans.map((p) => (
+                    <td key={`r-img-${p.code}`} className="px-4 py-3">{p.max_images_per_product ?? "—"}</td>
+                  ))}
+                </tr>
+                <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Créditos mensuales</td>
+                  {plans.map((p) => (
+                    <td key={`r-cred-${p.code}`} className="px-4 py-3">{p.credits_monthly ?? 0}</td>
+                  ))}
+                </tr>
+                <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Puede destacar</td>
+                  {plans.map((p) => (
+                    <td key={`r-feat-${p.code}`} className="px-4 py-3">
+                      {p.can_feature ? (
+                        <span className="inline-flex items-center gap-1 text-primary"><Check className="h-4 w-4" /> Sí{typeof p.feature_cost === "number" ? ` (costo ${p.feature_cost})` : ""}</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-primary"><X className="h-4 w-4" /> No</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* FAQ */}
       <section className="mx-auto mt-16 max-w-3xl">

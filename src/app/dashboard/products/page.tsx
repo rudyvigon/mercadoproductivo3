@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import Image from "next/image";
+import DashboardProductImage from "@/components/products/dashboard-product-image";
 import Link from "next/link";
 import { PackagePlus } from "lucide-react";
 import { GuardedCreateButton } from "@/components/dashboard/guarded-create-button";
@@ -52,6 +52,27 @@ export default async function ProductsDashboardPage() {
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
+
+  // Construir mapa de imagen principal por producto desde product_images
+  const primaryImageMap: Record<string, string | null> = {};
+  try {
+    const ids = (products ?? []).map((p: any) => p.id);
+    if (ids.length) {
+      const { data: imgs } = await supabase
+        .from("product_images")
+        .select("product_id,id,url")
+        .in("product_id", ids)
+        .order("id", { ascending: true });
+      for (const row of imgs || []) {
+        // Tomar la primera imagen por product_id
+        // @ts-ignore
+        if (!primaryImageMap[row.product_id]) {
+          // @ts-ignore
+          primaryImageMap[row.product_id] = row.url as string;
+        }
+      }
+    }
+  } catch {}
 
   // Ordenar en memoria: destacados vigentes primero, luego por fecha de creación desc
   const nowDate = new Date();
@@ -111,19 +132,17 @@ export default async function ProductsDashboardPage() {
           {sortedProducts.map((p: any) => (
             <div key={p.id} className="overflow-hidden rounded border bg-background">
               <div className="relative h-32 w-full sm:h-40">
-                {(() => {
-                  const firstImage = Array.isArray(p.images) ? p.images[0] : p.images;
-                  return firstImage ? (
-                    <Image
-                      src={firstImage as string}
-                      alt={p.title}
-                      fill
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-muted" />
-                  );
-                })()}
+                {primaryImageMap[p.id] ? (
+                  <DashboardProductImage
+                    src={primaryImageMap[p.id]!}
+                    alt={p.title}
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-muted flex items-center justify-center">
+                    <PackagePlus className="h-8 w-8 text-muted-foreground/50" />
+                  </div>
+                )}
                 {p?.featured_until && new Date(p.featured_until) > new Date() && (
                   <div className="absolute left-2 top-2 rounded bg-orange-500 px-2 py-0.5 text-[10px] font-medium text-white shadow">
                     Destacado

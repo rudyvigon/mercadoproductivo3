@@ -141,7 +141,7 @@ export default function SiteHeader() {
     { href: "/", label: "Inicio" },
     { href: "/nosotros", label: "Nosotros" },
     { href: "/planes", label: "Planes" },
-    { href: "/catalog", label: "Marketplace" },
+    { href: "/marketplace", label: "Marketplace" },
     { href: "/contacto", label: "Contacto" },
   ];
 
@@ -160,7 +160,7 @@ export default function SiteHeader() {
     ].join(" ");
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="fixed top-0 left-0 right-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6 lg:grid lg:grid-cols-3">
         <div className="flex items-center gap-3">
           <Link href="/" className="font-semibold text-foreground transition-colors hover:text-primary">

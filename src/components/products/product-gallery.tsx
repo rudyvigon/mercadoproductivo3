@@ -38,52 +38,90 @@ export function ProductGallery({ images, title, className }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, next, prev]);
 
-  const main = hasAny ? imgs[0] : null;
+  const activeSrc = hasAny ? imgs[index] : null;
 
   return (
-    <div className={className}>
-      {/* Imagen principal */}
-      {main ? (
-        <div className="relative">
-          <Image
-            src={main}
-            alt={title}
-            width={900}
-            height={700}
-            className="h-auto w-full rounded-md object-cover cursor-zoom-in"
-            onClick={() => openAt(0)}
-            priority
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="absolute right-2 top-2 z-10 bg-white/90 backdrop-blur text-gray-900 hover:bg-white"
-            onClick={() => openAt(0)}
+    <div className={`${className ?? ''} w-full overflow-hidden`}>
+      {/* Layout estilo Mercado Libre: thumbs verticales + imagen principal */}
+      <div className="flex gap-3 sm:gap-4 min-w-0 overflow-hidden">
+        {/* Thumbs verticales (desktop) */}
+        {hasAny ? (
+          <div
+            className="hidden sm:flex w-16 shrink-0 flex-col gap-2 overflow-y-auto max-h-[540px] px-1.5 py-2
+            [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            Galería
-          </Button>
-        </div>
-      ) : (
-        <div className="aspect-[4/3] w-full rounded-md bg-muted" />
-      )}
+            {imgs.map((url, idx) => (
+              <div key={idx} className="relative group">
+                <button
+                  type="button"
+                  onClick={() => setIndex(idx)}
+                  className={`relative aspect-square w-12 overflow-hidden rounded-md border border-gray-200 bg-white p-1 mx-0.5 ${
+                    idx === index ? "ring-2 ring-orange-500 border-orange-200" : "hover:ring-1 hover:ring-gray-300"
+                  }`}
+                >
+                  <div className="relative h-full w-full rounded-sm bg-white">
+                    <Image
+                      src={url}
+                      alt={`${title} miniatura ${idx + 1}`}
+                      fill
+                      sizes="64px"
+                      className="object-cover"
+                    />
+                  </div>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
-      {/* Miniaturas */}
-      {imgs.length > 1 && (
-        <div className="mt-3 grid grid-cols-4 gap-2">
-          {imgs.slice(1).map((url, idx) => (
-            <Image
+        {/* Imagen principal */}
+        <div className="relative flex-1 min-w-0">
+          {activeSrc ? (
+            <div className="relative w-full overflow-hidden rounded-lg border bg-white">
+              <div className="relative aspect-[4/3]">
+                <Image
+                  src={activeSrc}
+                  alt={`${title} imagen ${index + 1}`}
+                  fill
+                  priority
+                  className="object-contain bg-white"
+                />
+              </div>
+
+              {/* Controles superpuestos removidos por solicitud */}
+            </div>
+          ) : (
+            <div className="aspect-[4/3] w-full rounded-md bg-muted" />
+          )}
+        </div>
+      </div>
+
+      {/* Thumbs horizontales (mobile) */}
+      {hasAny && imgs.length > 1 && (
+        <div className="mt-3 flex items-center gap-2 overflow-x-auto sm:hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {imgs.map((url, idx) => (
+            <button
               key={idx}
-              src={url}
-              alt={`${title} ${idx + 2}`}
-              width={300}
-              height={200}
-              className="h-24 w-full rounded object-cover cursor-zoom-in"
-              onClick={() => openAt(idx + 1)}
-            />
+              type="button"
+              onClick={() => setIndex(idx)}
+              className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white p-1 mx-1 ${
+                idx === index ? "ring-2 ring-orange-500 border-orange-200" : "hover:ring-1 hover:ring-gray-300"
+              }`}
+            >
+              <div className="relative h-full w-full rounded-sm bg-white">
+                <Image
+                  src={url}
+                  alt={`${title} miniatura ${idx + 1}`}
+                  fill
+                  sizes="64px"
+                  className="object-cover"
+                />
+              </div>
+            </button>
           ))}
         </div>
       )}
+
 
       {/* Modal Preview */}
       <Dialog open={open} onOpenChange={setOpen}>

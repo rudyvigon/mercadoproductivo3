@@ -22,6 +22,7 @@ const nextConfig = {
       { protocol: 'https', hostname: 'xsgcscgdzbhiphgyzbfm.supabase.co', pathname: '/storage/v1/object/public/**' },
       { protocol: 'https', hostname: 'images.unsplash.com' },
       { protocol: 'https', hostname: 'plus.unsplash.com' },
+      { protocol: 'https', hostname: 'via.placeholder.com' },
     ],
   },
   webpack: (config) => {

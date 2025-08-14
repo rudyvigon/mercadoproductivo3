@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -26,10 +27,14 @@ export default function FeatureProductButton({
   featuredUntil?: string | null;
 }) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFeatured, setIsFeatured] = useState(false);
+  const [canFeature, setCanFeature] = useState<boolean>(true);
+  const [featureCost, setFeatureCost] = useState<number | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState<boolean>(true);
 
   // Actualizar estado destacado cuando cambia featuredUntil
   useEffect(() => {
@@ -41,14 +46,50 @@ export default function FeatureProductButton({
     }
   }, [featuredUntil]);
 
+  // Cargar permisos y costo desde `plans` según plan del usuario
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('plan_code')
+          .eq('id', user.id)
+          .single();
+        const planCode = (profile?.plan_code || '').toString();
+        if (!planCode) {
+          setCanFeature(true);
+          setFeatureCost(cost);
+          return;
+        }
+        const { data: plan } = await supabase
+          .from('plans')
+          .select('can_feature, feature_cost')
+          .eq('code', planCode)
+          .maybeSingle();
+        setCanFeature(Boolean((plan as any)?.can_feature ?? true));
+        const fc: any = (plan as any)?.feature_cost;
+        setFeatureCost(typeof fc === 'number' ? fc : (fc ? Number(fc) : cost));
+      } catch {
+        setCanFeature(true);
+        setFeatureCost(cost);
+      } finally {
+        setLoadingPlan(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, cost]);
+
   const onConfirm = async () => {
     setLoading(true);
     setError(null);
     try {
+      const effectiveCost = featureCost ?? cost;
       const res = await fetch("/api/products/feature", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, days: defaultDays, cost }),
+        body: JSON.stringify({ productId, days: defaultDays, cost: effectiveCost }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -77,6 +118,24 @@ export default function FeatureProductButton({
     );
   }
 
+  // Mientras cargamos el plan
+  if (loadingPlan) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        Cargando...
+      </Button>
+    );
+  }
+
+  // Si el plan no permite destacar
+  if (!canFeature) {
+    return (
+      <Button size="sm" variant="outline" disabled title="Tu plan no permite destacar productos">
+        Destacar
+      </Button>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -88,7 +147,7 @@ export default function FeatureProductButton({
         <DialogHeader>
           <DialogTitle>Destacar producto</DialogTitle>
           <DialogDescription>
-            Usará {cost} crédito(s) y destacará el producto por {defaultDays} día(s).
+            Usará {featureCost ?? cost} crédito(s) y destacará el producto por {defaultDays} día(s).
           </DialogDescription>
         </DialogHeader>
         {error && (

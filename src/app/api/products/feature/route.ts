@@ -18,6 +18,19 @@ export async function POST(req: Request) {
     if (!Number.isFinite(days) || days <= 0) return NextResponse.json({ error: "days inválido" }, { status: 400 });
     if (!Number.isFinite(cost) || cost <= 0) return NextResponse.json({ error: "cost inválido" }, { status: 400 });
 
+    // Verificar propiedad del producto antes de ejecutar la RPC
+    const { data: ownerRow, error: ownerErr } = await supabase
+      .from("products")
+      .select("user_id")
+      .eq("id", productId)
+      .single();
+    if (ownerErr || !ownerRow) {
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
+    if (ownerRow.user_id !== user.id) {
+      return NextResponse.json({ error: "Prohibido: no puedes modificar productos de otro usuario" }, { status: 403 });
+    }
+
     const { data, error } = await supabase.rpc("sp_feature_product", {
       p_product: productId,
       p_days: days,

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { UploadCloud, ChevronLeft, ChevronRight } from "lucide-react";
+import { buildSafeStoragePath } from "@/lib/images";
 
 // Aceptar string o number y normalizar valores numéricos con coma/punto
 const numberFromInput = z.union([z.string(), z.number()]).transform((val) => {
@@ -24,6 +25,34 @@ const numberFromInput = z.union([z.string(), z.number()]).transform((val) => {
   return Number(normalized);
 });
 
+// Provincias de Argentina (para dropdown)
+const AR_PROVINCES = [
+  "Buenos Aires",
+  "Ciudad Autónoma de Buenos Aires",
+  "Catamarca",
+  "Chaco",
+  "Chubut",
+  "Córdoba",
+  "Corrientes",
+  "Entre Ríos",
+  "Formosa",
+  "Jujuy",
+  "La Pampa",
+  "La Rioja",
+  "Mendoza",
+  "Misiones",
+  "Neuquén",
+  "Río Negro",
+  "Salta",
+  "San Juan",
+  "San Luis",
+  "Santa Cruz",
+  "Santa Fe",
+  "Santiago del Estero",
+  "Tierra del Fuego, Antártida e Islas del Atlántico Sur",
+  "Tucumán",
+];
+
 const productSchema = z.object({
   title: z.string().min(3, "Mínimo 3 caracteres"),
   description: z.string().min(10, "Mínimo 10 caracteres"),
@@ -31,7 +60,8 @@ const productSchema = z.object({
   price: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa un precio válido" }),
   quantity_value: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa una cantidad válida" }),
   quantity_unit: z.enum(["unidad", "kg", "tn"], { required_error: "Selecciona unidad" }),
-  images: z.any().optional(),
+  province: z.string().min(1, "Selecciona una provincia"),
+  city: z.string().min(1, "Selecciona una localidad"),
 });
 
 export type ProductFormValues = z.input<typeof productSchema>;
@@ -52,6 +82,8 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const isFull = files.length >= maxFiles;
+  const [cities, setCities] = useState<string[]>([]);
+  const [loadingCities, setLoadingCities] = useState(false);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -63,8 +95,16 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       price: "",
       quantity_value: "",
       quantity_unit: undefined as any,
+      province: "",
+      city: "",
     },
   });
+
+  // Asegurar que provincia y ciudad estén vacías al montar (placeholder visible)
+  useEffect(() => {
+    form.setValue("province", "", { shouldValidate: true });
+    form.setValue("city", "", { shouldValidate: true });
+  }, []);
 
   useEffect(() => {
     // doble chequeo por si el usuario entró directo a la URL
@@ -101,44 +141,63 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
     })();
   }, [supabase, missingLabels]);
 
-  // Determinar límite de imágenes según plan del usuario (profiles.plan_code preferido). Fallback: 5
+  // Cargar localidades al cambiar la provincia seleccionada
+  const selectedProvince = form.watch("province");
+  useEffect(() => {
+    async function loadCities(prov: string) {
+      setLoadingCities(true);
+      try {
+        const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(prov)}&campos=nombre&orden=nombre&max=5000`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("No se pudieron cargar localidades");
+        const json = await res.json();
+        const list: string[] = Array.isArray(json?.localidades)
+          ? json.localidades.map((l: any) => String(l.nombre))
+          : [];
+        setCities(list);
+      } catch (e) {
+        console.error(e);
+        setCities([]);
+      } finally {
+        setLoadingCities(false);
+      }
+    }
+    if (selectedProvince && selectedProvince.length > 0) {
+      setCities([]);
+      form.setValue("city", "", { shouldValidate: true });
+      loadCities(selectedProvince);
+    } else {
+      setCities([]);
+      form.setValue("city", "", { shouldValidate: true });
+    }
+  }, [selectedProvince, form]);
+
+  // Resolver límite de imágenes por plan desde la tabla `plans` (fallback 5)
   useEffect(() => {
     (async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        let plan: string | undefined =
-          (user.user_metadata as any)?.plan_code ||
-          (user.user_metadata as any)?.plan ||
-          (user.app_metadata as any)?.plan_code ||
-          (user.app_metadata as any)?.plan;
-        try {
-          const { data, error } = await supabase
-            .from("profiles")
-            .select("plan_code")
-            .eq("id", user.id)
-            .single();
-          if (!error && (data as any)?.plan_code) plan = String((data as any).plan_code);
-        } catch {
-          // si la columna no existe u otro error, ignorar
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('plan_code')
+          .eq('id', user.id)
+          .single();
+        const planCode = (profile?.plan_code || '').toString();
+        if (!planCode) {
+          setMaxFiles(5);
+          return;
         }
-        // Si es anunciante y no hay plan definido, asumir "free"
-        if (!plan) {
-          const role = (user.user_metadata as any)?.role as string | undefined;
-          if (role === "anunciante") plan = "free";
-        }
-        const map: Record<string, number> = {
-          free: 1,
-          basic: 1,
-          premium: 5,
-          pro: 5,
-          plus: 10,
-          enterprise: 10,
-        };
-        setMaxFiles(map[String(plan || "").toLowerCase()] ?? 5);
-      } catch {}
+        const { data: plan } = await supabase
+          .from('plans')
+          .select('max_images_per_product')
+          .eq('code', planCode)
+          .maybeSingle();
+        const maxImages = Number((plan as any)?.max_images_per_product) || 5;
+        setMaxFiles(maxImages);
+      } catch {
+        setMaxFiles(5);
+      }
     })();
   }, [supabase]);
 
@@ -197,7 +256,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
     const bucket = "product-images";
     const urls: string[] = [];
     for (const f of files) {
-      const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`;
+      const { path } = buildSafeStoragePath({ userId, file: f });
       const { error } = await supabase.storage.from(bucket).upload(path, f, {
         cacheControl: "3600",
         upsert: false,
@@ -233,7 +292,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         price: values.price,
         quantity_value: values.quantity_value,
         quantity_unit: values.quantity_unit,
-        images: imageUrls,
+        location: `${values.city}, ${values.province}`,
         created_at: new Date().toISOString(),
       } as const;
 
@@ -261,7 +320,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       router.replace("/dashboard/products");
       router.refresh();
     } catch (e: any) {
-      console.error(e);
+      console.error("Create product failed", e);
       const msg = e?.message ?? String(e);
       if (/relation\s+\"?products\"?\s+does not exist/i.test(msg)) {
         toast.error("Backend aún no disponible (tabla products). El formulario ya está listo.");
@@ -271,8 +330,10 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         toast.error("Límite de imágenes por producto alcanzado para tu plan.");
       } else if (/bucket.*not.*found/i.test(msg)) {
         toast.error("Falta el bucket 'product-images' en Supabase Storage. Crea el bucket o ajusta la config.");
+      } else if (/row-level security|RLS|permission denied|not authorized/i.test(msg)) {
+        toast.error("Permisos insuficientes para crear producto (RLS). Revisa políticas en Supabase.");
       } else {
-        toast.error("No se pudo crear el producto");
+        toast.error(`No se pudo crear el producto: ${msg}`);
       }
     } finally {
       setSaving(false);
@@ -359,6 +420,47 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
           </div>
           {(form.getFieldState("quantity_value", form.formState).error || form.getFieldState("quantity_unit", form.formState).error) && (
             <p className="text-xs text-red-600">Revisa cantidad y unidad</p>
+          )}
+        </div>
+      </div>
+
+      {/* Provincia y Localidad */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label className={form.getFieldState("province", form.formState).error ? "text-red-600" : undefined}>Provincia <span className="text-red-600">*</span></Label>
+          <Select value={form.watch("province") || ""} onValueChange={(v) => form.setValue("province", v, { shouldValidate: true })} disabled={saving}>
+            <SelectTrigger className={fieldErrorClass("province")}>
+              <SelectValue placeholder="Seleccione provincia" />
+            </SelectTrigger>
+            <SelectContent>
+              {AR_PROVINCES.map((p) => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {form.getFieldState("province", form.formState).error && (
+            <p className="text-xs text-red-600">{form.getFieldState("province", form.formState).error?.message}</p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label className={form.getFieldState("city", form.formState).error ? "text-red-600" : undefined}>Localidad <span className="text-red-600">*</span></Label>
+          <Select value={form.watch("city") || ""} onValueChange={(v) => form.setValue("city", v, { shouldValidate: true })} disabled={saving || !form.watch("province") || loadingCities}>
+            <SelectTrigger className={fieldErrorClass("city")}>
+              <SelectValue placeholder={loadingCities ? "Cargando..." : (!form.watch("province") ? "Selecciona provincia primero" : "Selecciona localidad")} />
+            </SelectTrigger>
+            <SelectContent>
+              {loadingCities && <SelectItem value="__loading" disabled>Cargando...</SelectItem>}
+              {!loadingCities && (!cities.length ? (
+                <SelectItem value="__empty" disabled>Sin localidades</SelectItem>
+              ) : (
+                cities.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))
+              ))}
+            </SelectContent>
+          </Select>
+          {form.getFieldState("city", form.formState).error && (
+            <p className="text-xs text-red-600">{form.getFieldState("city", form.formState).error?.message}</p>
           )}
         </div>
       </div>

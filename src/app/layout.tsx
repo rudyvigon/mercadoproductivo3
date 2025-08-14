@@ -22,7 +22,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
             <GlobalMobileMenu />
           </AppShell>
-          <Toaster richColors theme="light" position="top-center" />
+          {/* Toaster mobile: arriba a la derecha, con offset para no tapar el header */}
+          <div className="sm:hidden">
+            <Toaster richColors theme="light" position="top-right" offset={64} />
+          </div>
+          {/* Toaster desktop: abajo a la derecha */}
+          <div className="hidden sm:block">
+            <Toaster richColors theme="light" position="bottom-right" offset={24} />
+          </div>
         </ThemeProvider>
       </body>
     </html>

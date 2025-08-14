@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { ProductGallery } from "@/components/products/product-gallery";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, Pencil, Star, MapPin } from "lucide-react";
 
 
 export const dynamic = "force-dynamic";
@@ -21,45 +22,64 @@ export default async function ProductDetailPage({
 
   if (!user) redirect("/auth/login");
 
-  const { data: product, error } = await supabase
-    .from("products")
-    .select(
-      "id,user_id,title,description,category,price,quantity_value,quantity_unit,images,created_at"
-    )
-    .eq("id", params.id)
-    .single();
+  // Estrategia de doble intento: primero por id, luego por (id + user_id) si no hay resultado
+  let product: any = null;
+  let error: any = null;
 
-  if (error || !product) notFound();
+  {
+    const { data, error: err } = await supabase
+      .from("products")
+      .select(
+        "id,user_id,title,description,category,price,quantity_value,quantity_unit,created_at,location,featured_until"
+      )
+      .eq("id", params.id)
+      .single();
+    product = data;
+    error = err;
+  }
+
+  if (!product) {
+    const { data, error: err } = await supabase
+      .from("products")
+      .select(
+        "id,user_id,title,description,category,price,quantity_value,quantity_unit,created_at,location,featured_until"
+      )
+      .eq("id", params.id)
+      .eq("user_id", user.id)
+      .single();
+    product = data;
+    // solo guardamos error si sigue sin producto
+    if (!product) error = err;
+  }
+
+  if (!product) {
+    // Ayuda para depurar errores de RLS o de consulta
+    // @ts-ignore
+    const code = (error as any)?.code;
+    // @ts-ignore
+    const details = (error as any)?.details;
+    // @ts-ignore
+    const hint = (error as any)?.hint;
+    console.error("Error fetching dashboard product detail (both attempts failed):", { code, details, hint, error });
+    notFound();
+  }
   if (product.user_id !== user.id) notFound();
 
-  // Construir lista de imágenes desde products.images y, si existe, desde product_images
-  let imageUrls: string[] = [];
-  try {
-    if (Array.isArray(product.images)) {
-      imageUrls = product.images.filter(Boolean);
-    } else if (typeof product.images === "string" && product.images) {
-      imageUrls = [product.images];
-    }
-  } catch {}
-
-  try {
-    const { data: extraImages, error: extraErr } = await supabase
-      .from("product_images")
-      .select("url")
-      .eq("product_id", product.id);
-    if (!extraErr && extraImages && extraImages.length > 0) {
-      const urls = extraImages.map((r: { url: string }) => r.url).filter(Boolean);
-      const set = new Set([...(imageUrls || []), ...urls]);
-      imageUrls = Array.from(set);
-    }
-  } catch {}
-
-  const mainImage = imageUrls[0] ?? null;
+  // Cargar imágenes desde product_images
+  const { data: imagesData } = await supabase
+    .from("product_images")
+    .select("url")
+    .eq("product_id", product.id)
+    .order("id", { ascending: true });
+  const imageUrls: string[] = (imagesData || []).map((i: any) => i.url);
   const priceFmt = new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
   }).format(Number(product.price));
   const quantity = `${Number(product.quantity_value)} ${product.quantity_unit}`;
+  const isFeatured = Boolean(
+    product.featured_until && new Date(product.featured_until) > new Date()
+  );
 
   return (
     <div className="mx-auto max-w-4xl p-4 space-y-4 sm:p-6 sm:space-y-6">
@@ -82,10 +102,20 @@ export default async function ProductDetailPage({
             </div>
 
             <div className="space-y-4">
-              <h1 className="text-xl font-semibold sm:text-2xl">{product.title}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold sm:text-2xl">{product.title}</h1>
+                {isFeatured && (
+                  <Badge className="bg-orange-500 text-white">
+                    <Star className="mr-1 h-3 w-3" /> Destacado
+                  </Badge>
+                )}
+              </div>
               <div className="text-base sm:text-lg">
                 <span className="font-medium">{priceFmt}</span>
                 <span className="text-muted-foreground">{" · "}{quantity}</span>
+              </div>
+              <div className="text-sm text-muted-foreground inline-flex items-center gap-1">
+                <MapPin className="h-4 w-4" /> {product.location}
               </div>
               <div>
                 <div className="text-xs text-muted-foreground sm:text-sm">Categoría</div>
