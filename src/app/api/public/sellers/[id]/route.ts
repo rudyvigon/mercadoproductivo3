@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 function planCodeToLabel(code?: string | null) {
   const c = String(code || "").toLowerCase();
@@ -48,6 +49,20 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       "plan_code",
     ].join(", ");
 
+    type ProfileRow = {
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      full_name: string | null;
+      company: string | null;
+      city: string | null;
+      province: string | null;
+      avatar_url: string | null;
+      updated_at: string | null;
+      plan_activated_at: string | null;
+      plan_code: string | null;
+    };
+
     const { data, error } = await supabase
       .from("profiles")
       .select(columns)
@@ -71,27 +86,28 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       return NextResponse.json({ error: "NOT_FOUND", message: "Vendedor no encontrado" }, { status: 404 });
     }
 
-    const first = (data.first_name || "").trim();
-    const last = (data.last_name || "").trim();
-    const full_name = (data.full_name || `${first} ${last}`.trim()) || "Vendedor";
-    const location = data.city && data.province ? `${data.city}, ${data.province}` : null;
-    const plan_label = planCodeToLabel(data.plan_code);
-    const created_at = data.updated_at ?? data.plan_activated_at ?? null;
+    const row = data as unknown as ProfileRow;
+    const first = (row.first_name || "").trim();
+    const last = (row.last_name || "").trim();
+    const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
+    const location = row.city && row.province ? `${row.city}, ${row.province}` : null;
+    const plan_label = planCodeToLabel(row.plan_code);
+    const created_at = row.updated_at ?? row.plan_activated_at ?? null;
 
     return NextResponse.json(
       {
         seller: {
-          id: data.id,
-          first_name: data.first_name ?? null,
-          last_name: data.last_name ?? null,
+          id: row.id,
+          first_name: row.first_name ?? null,
+          last_name: row.last_name ?? null,
           full_name,
-          company: data.company ?? null,
-          city: data.city ?? null,
-          province: data.province ?? null,
+          company: row.company ?? null,
+          city: row.city ?? null,
+          province: row.province ?? null,
           location,
-          avatar_url: data.avatar_url ?? null,
+          avatar_url: row.avatar_url ?? null,
           created_at,
-          plan_code: data.plan_code ?? null,
+          plan_code: row.plan_code ?? null,
           plan_label,
         },
       },
