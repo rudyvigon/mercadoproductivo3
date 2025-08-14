@@ -34,6 +34,9 @@ Thumbs.db
 .vercel/
 .netlify/
 
+# Supabase (migraciones y metadata locales)
+/supabase/
+
 # Coverage
 coverage/
 
