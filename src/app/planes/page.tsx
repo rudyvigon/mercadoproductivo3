@@ -23,6 +23,76 @@ type PlanRow = {
   credits_monthly: number | null;
   can_feature?: boolean | null;
   feature_cost?: number | null;
+  // Campos opcionales para precios (si existen en la BD)
+  price_monthly_cents?: number | null;
+  price_yearly_cents?: number | null;
+  currency?: string | null;
+  price_monthly?: number | null; // en unidades de moneda (no centavos)
+  price_yearly?: number | null;  // en unidades de moneda (no centavos)
+};
+
+// Formateador de moneda seguro por servidor (AR: separador decimal "," y de miles ".")
+const formatCurrency = (amount: number, currency: string = "ARS", locale: string = "es-AR") => {
+  try {
+    return new Intl.NumberFormat(locale, { style: "currency", currency }).format(amount);
+  } catch {
+    // Fallback manual para AR: separador miles "." y decimal ","
+    const sign = amount < 0 ? "-" : "";
+    const n = Math.abs(amount);
+    const [intPart, decPart] = n.toFixed(2).split(".");
+    const intWithThousands = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return `${sign}${currency} ${intWithThousands},${decPart}`;
+  }
+};
+
+// Cálculo de precios mensuales/anuales a partir de los campos disponibles
+const computePrice = (p: PlanRow): { monthly: number | null; yearly: number | null; currency: string } => {
+  const cur = (p.currency || "ARS").toUpperCase();
+  let monthly: number | null = null;
+  let yearly: number | null = null;
+
+  if (typeof p.price_monthly_cents === "number") {
+    monthly = p.price_monthly_cents / 100;
+  } else if (p.price_monthly != null) {
+    const m = Number((p.price_monthly as unknown) as any);
+    monthly = Number.isFinite(m) ? m : null;
+  }
+
+  if (typeof p.price_yearly_cents === "number") {
+    yearly = p.price_yearly_cents / 100;
+  } else if (p.price_yearly != null) {
+    const y = Number((p.price_yearly as unknown) as any);
+    yearly = Number.isFinite(y) ? y : null;
+  }
+
+  // Derivar mensual/anual si falta alguno
+  if (monthly == null && yearly != null) monthly = Number((yearly / 12).toFixed(2));
+  if (yearly == null && monthly != null) yearly = Number((monthly * 12).toFixed(2));
+
+  if (monthly != null) monthly = Number(monthly.toFixed(2));
+  if (yearly != null) yearly = Number(yearly.toFixed(2));
+
+  return { monthly, yearly, currency: cur };
+};
+
+// Helpers para identificar planes por tipo
+const isFreePlan = (p: PlanRow) => {
+  const code = (p.code || "").toLowerCase();
+  const name = (p.name || "").toLowerCase();
+  const { monthly } = computePrice(p);
+  return (
+    monthly === 0 ||
+    code.includes("free") ||
+    code.includes("basic") ||
+    name.includes("básico") ||
+    name.includes("basico")
+  );
+};
+
+const isDeluxePlan = (p: PlanRow) => {
+  const code = (p.code || "").toLowerCase();
+  const name = (p.name || "").toLowerCase();
+  return code.includes("deluxe") || name.includes("deluxe");
 };
 
 export default async function PlanesPage() {
@@ -52,6 +122,20 @@ export default async function PlanesPage() {
     console.error("Error fetch /api/public/plans", e?.message || e);
     endpointError = e?.message || "Fallo de red";
   }
+  // Intercambiar el orden de Deluxe y Gratis (si ambos existen)
+  try {
+    if (plans.length > 0) {
+      const idxFree = plans.findIndex(isFreePlan);
+      const idxDeluxe = plans.findIndex(isDeluxePlan);
+      if (idxFree !== -1 && idxDeluxe !== -1 && idxFree !== idxDeluxe) {
+        const copy = [...plans];
+        const tmp = copy[idxFree];
+        copy[idxFree] = copy[idxDeluxe];
+        copy[idxDeluxe] = tmp;
+        plans = copy;
+      }
+    }
+  } catch {}
   return (
     <main className="mx-auto max-w-6xl p-4 space-y-6 sm:p-6 sm:space-y-8">
       {/* Hero */}
@@ -73,6 +157,9 @@ export default async function PlanesPage() {
           const credits = p.credits_monthly ?? 0;
           const canFeature = Boolean(p.can_feature ?? true);
           const featureCost = typeof p.feature_cost === "number" ? p.feature_cost : (p.feature_cost ? Number(p.feature_cost) : null);
+          const { monthly, yearly, currency } = computePrice(p);
+          const monthlyFmt = monthly != null ? formatCurrency(monthly, currency) : null;
+          const yearlyFmt = yearly != null ? formatCurrency(yearly, currency) : null;
           const isPopular = code === "premium" || code === "pro"; // Heurística simple si no hay flag en BD
           const isFirst = idx === 0;
           const isSecond = idx === 1;
@@ -106,6 +193,34 @@ export default async function PlanesPage() {
                 <CardDescription className="capitalize">{code}</CardDescription>
               </CardHeader>
               <CardContent className="grow">
+                <div className="mb-3">
+                  {(monthly != null || yearly != null) && (
+                    <>
+                      {monthly != null && (
+                        <div className="text-3xl font-bold">
+                          {monthly === 0 ? (
+                            "Gratis"
+                          ) : (
+                            <>
+                              {monthlyFmt} <span className="text-sm text-muted-foreground">/mes</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {yearly != null && (
+                        <div className="text-xs text-muted-foreground">
+                          {yearly === 0 ? (
+                            "o Gratis"
+                          ) : (
+                            <>
+                              o {yearlyFmt} /año
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
                 <div className="mt-1 space-y-3 text-sm">
                   <p className="font-medium">Incluye:</p>
                   <ul className="space-y-2 text-muted-foreground">
@@ -201,6 +316,17 @@ export default async function PlanesPage() {
               </thead>
               <tbody>
                 <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Precio mensual</td>
+                  {plans.map((p) => {
+                    const { monthly, currency } = computePrice(p);
+                    return (
+                      <td key={`r-price-${p.code}`} className="px-4 py-3">
+                        {monthly == null ? "" : monthly === 0 ? "Gratis" : formatCurrency(monthly, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Productos máximos</td>
                   {plans.map((p) => (
                     <td key={`r-prod-${p.code}`} className="px-4 py-3">
@@ -241,7 +367,7 @@ export default async function PlanesPage() {
       )}
 
       {/* FAQ */}
-      <section className="mx-auto mt-16 max-w-3xl">
+      <section className="mx-auto mt-16 max-w-6xl">
         <h2 className="text-2xl font-semibold tracking-tight">Preguntas Frecuentes</h2>
         <p className="mt-2 text-muted-foreground">Resolvemos las dudas más comunes sobre nuestros planes y servicios.</p>
         <Accordion type="single" collapsible className="mt-6">
@@ -262,7 +388,7 @@ export default async function PlanesPage() {
           <AccordionItem value="q3">
             <AccordionTrigger>¿Hay descuentos por pago anual?</AccordionTrigger>
             <AccordionContent>
-              Sí, ofrecemos un 20% de descuento en todos los planes pagados anualmente. Contacta a nuestro equipo de
+              Sí, ofrecemos un 15% de descuento en todos los planes pagados anualmente. Contacta a nuestro equipo de
               ventas para más información.
             </AccordionContent>
           </AccordionItem>
@@ -284,10 +410,10 @@ export default async function PlanesPage() {
         </p>
         <div className="mt-3 flex items-baseline justify-center gap-x-2 sm:mt-4 sm:flex-row">
           <Button asChild>
-            <Link href="/dashboard">Comenzar Gratis</Link>
+            <Link href="/dashboard">Publicar Ahora</Link>
           </Button>
           <Button asChild variant="outline">
-            <Link href="/contacto">Hablar con Ventas</Link>
+            <Link href="/contacto">Contáctanos</Link>
           </Button>
         </div>
       </section>

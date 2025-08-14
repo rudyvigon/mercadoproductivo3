@@ -18,7 +18,8 @@ export async function GET() {
       }, { status: 500 });
     }
     const supabase = createAdminClient();
-    const columnsFull = "code, name, max_products, max_images_per_product, credits_monthly, can_feature, feature_cost";
+    // Intentamos incluir columnas opcionales relacionadas a precios y moneda si existen en la tabla
+    const columnsFull = "code, name, max_products, max_images_per_product, credits_monthly, can_feature, feature_cost, price_monthly_cents, price_yearly_cents, currency, price_monthly, price_yearly";
     const { data, error } = await supabase
       .from("plans")
       .select(columnsFull)
@@ -38,7 +39,16 @@ export async function GET() {
         .select(columnsBase)
         .order("code", { ascending: true });
       if (!errorBase && Array.isArray(dataBase)) {
-        const mapped = dataBase.map((r: any) => ({ ...r, can_feature: null, feature_cost: null }));
+        const mapped = dataBase.map((r: any) => ({
+          ...r,
+          can_feature: null,
+          feature_cost: null,
+          price_monthly_cents: null,
+          price_yearly_cents: null,
+          currency: null,
+          price_monthly: null,
+          price_yearly: null,
+        }));
         return NextResponse.json(
           { plans: mapped },
           { headers: { "Cache-Control": "no-store" } }
