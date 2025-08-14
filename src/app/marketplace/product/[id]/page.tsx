@@ -152,7 +152,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       quantity_unit,
       category
     `)
-    .eq('user_id', product.user_id)
+    .neq('user_id', product.user_id)
     .eq('category', product.category)
     .neq('id', product.id)
     .limit(2);
@@ -380,7 +380,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
             {similarProducts && similarProducts.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Productos similares del vendedor</CardTitle>
+                  <CardTitle className="text-lg">Otros vendedores</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {similarProducts.map((sp) => (
