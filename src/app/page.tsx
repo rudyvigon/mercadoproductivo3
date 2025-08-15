@@ -43,8 +43,8 @@ export default async function Home() {
                 Crear cuenta gratis
               </Link>
             )}
-            <Link href="/catalog" className="inline-flex w-full items-center justify-center rounded-md border border-white/30 bg-white/10 px-5 py-2.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20 sm:w-auto">
-              Explorar catálogo
+            <Link href="/marketplace" className="inline-flex w-full items-center justify-center rounded-md border border-white/30 bg-white/10 px-5 py-2.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20 sm:w-auto">
+              Explorar marketplace
             </Link>
           </div>
         </div>
@@ -142,7 +142,7 @@ export default async function Home() {
           ].map((cat, i) => (
             <Reveal key={cat.title} direction="up" delayMs={i * 80}>
               <TiltCard className="group relative overflow-hidden rounded-lg border">
-                <Link href="/catalog" className="block">
+                <Link href="/marketplace" className="block">
                   <div className="relative h-32 sm:h-40 lg:h-44">
                     <Image src={cat.img} alt={cat.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" />
                   </div>

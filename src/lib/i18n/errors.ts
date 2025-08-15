@@ -19,6 +19,13 @@ export function toSpanishErrorMessage(err: unknown, fallback: string): string {
     [/too many requests/i, "Has realizado demasiados intentos. Intenta más tarde"],
     [/rate limit/i, "Has realizado demasiados intentos. Intenta más tarde"],
     [/network|fetch failed/i, "Problemas de conexión. Intenta nuevamente"],
+    // Backend DB/trigger al crear usuario
+    [/database error saving new user/i, "Error de base de datos al crear tu usuario. Estamos ajustando el perfil. Intenta nuevamente en unos minutos."],
+    [/unexpected_failure/i, "Ocurrió un error inesperado. Intenta nuevamente más tarde."],
+    // Redirect URL no verificada en Supabase
+    [/verified redirectTo url|for security purposes.*redirectto/i, "URL de redirección no permitida. Configura las Allowed Redirect URLs en Supabase > Authentication > URL Configuration."],
+    // SMTP/Email provider fallando
+    [/(smtp|error sending|connection refused|dial tcp|econnrefused)/i, "No se pudo enviar el correo de verificación. Revisa la configuración de correo o inténtalo más tarde."],
   ];
 
   for (const [pattern, es] of dict) {

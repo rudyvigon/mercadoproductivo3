@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ShoppingBag, TrendingUp, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 const bannerSlides = [
   {
@@ -13,7 +13,6 @@ const bannerSlides = [
     title: "Conectamos Productores y Compradores",
     subtitle: "La plataforma líder del sector agroindustrial",
     description: "Descubre productos frescos directamente del campo a tu mesa",
-    image: "/api/placeholder/1200/400",
     cta: "Explorar Productos",
     ctaLink: "#productos"
   },
@@ -22,7 +21,6 @@ const bannerSlides = [
     title: "Productos Destacados del Mes",
     subtitle: "Calidad garantizada",
     description: "Los mejores productos seleccionados por nuestros expertos",
-    image: "/api/placeholder/1200/400",
     cta: "Ver Destacados",
     ctaLink: "#destacados"
   },
@@ -31,7 +29,6 @@ const bannerSlides = [
     title: "Únete a Nuestra Comunidad",
     subtitle: "Más de 1000 productores confían en nosotros",
     description: "Forma parte del marketplace agroindustrial más grande",
-    image: "/api/placeholder/1200/400",
     cta: "Registrarse",
     ctaLink: "/auth/register"
   }
@@ -40,6 +37,46 @@ const bannerSlides = [
 export default function BannerSlider() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+  const [slideImages, setSlideImages] = useState<(string | null)[]>([null, null, null]);
+
+  // Detectar sesión para ocultar botón de registro si el usuario está logueado
+  useEffect(() => {
+    const supabase = createClient();
+    let unsub: { unsubscribe: () => void } | null = null;
+    supabase.auth.getSession().then(({ data }) => setIsLoggedIn(!!data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session);
+    });
+    unsub = data.subscription;
+    return () => {
+      unsub?.unsubscribe();
+    };
+  }, []);
+
+  // Cargar imágenes del endpoint público que entrega URLs firmadas
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ limit: String(bannerSlides.length), folder: "imagessite" });
+        const res = await fetch(`/api/public/site/banners?${params.toString()}`, { cache: "no-store" });
+        if (!res.ok) {
+          console.error("[BannerSlider] Error HTTP al obtener banners:", res.status, res.statusText);
+          setSlideImages([null, null, null]);
+          return;
+        }
+        const json = await res.json();
+        const images: string[] = Array.isArray(json?.images) ? json.images : [];
+        const normalized = Array.from({ length: bannerSlides.length }, (_, i) => images[i] ?? null);
+        console.log("[BannerSlider] Imágenes del endpoint:", normalized);
+        setSlideImages(normalized);
+      } catch (e) {
+        console.error("[BannerSlider] Error inesperado al cargar banners:", e);
+        setSlideImages([null, null, null]);
+      }
+    };
+    load();
+  }, []);
 
   // Auto-play del slider
   useEffect(() => {
@@ -47,7 +84,7 @@ export default function BannerSlider() {
 
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % bannerSlides.length);
-    }, 5000);
+    }, 8000);
 
     return () => clearInterval(interval);
   }, [isAutoPlaying]);
@@ -82,6 +119,11 @@ export default function BannerSlider() {
               "absolute inset-0 w-full h-full transition-all duration-700 ease-in-out",
               index === currentSlide ? "opacity-100 translate-x-0" : "opacity-0 translate-x-full"
             )}
+            style={{
+              backgroundImage: `url(${slideImages[index] ?? "https://via.placeholder.com/1200x400?text=Banner"})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
           >
             {/* Background con overlay */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/50 to-black/30 z-10" />
@@ -98,28 +140,33 @@ export default function BannerSlider() {
                 <p className="text-base sm:text-lg mb-8 max-w-2xl mx-auto opacity-90">
                   {slide.description}
                 </p>
-{slide.ctaLink.startsWith('#') ? (
-                  <Button 
-                    size="lg" 
-                    className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 text-lg"
-                    onClick={() => {
-                      document.querySelector(slide.ctaLink)?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                  >
-                    <ShoppingBag className="mr-2 h-5 w-5" />
-                    {slide.cta}
-                  </Button>
-                ) : (
-                  <Link href={slide.ctaLink}>
+                {/* Mostrar CTA solo si corresponde. Ocultar registro si está logueado */}
+                {(() => {
+                  const isRegisterCTA = slide.ctaLink === "/auth/register";
+                  if (isRegisterCTA && isLoggedIn) return null;
+                  return slide.ctaLink.startsWith('#') ? (
                     <Button 
                       size="lg" 
                       className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 text-lg"
+                      onClick={() => {
+                        document.querySelector(slide.ctaLink)?.scrollIntoView({ behavior: 'smooth' });
+                      }}
                     >
                       <ShoppingBag className="mr-2 h-5 w-5" />
                       {slide.cta}
                     </Button>
-                  </Link>
-                )}
+                  ) : (
+                    <Link href={slide.ctaLink}>
+                      <Button 
+                        size="lg" 
+                        className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 text-lg"
+                      >
+                        <ShoppingBag className="mr-2 h-5 w-5" />
+                        {slide.cta}
+                      </Button>
+                    </Link>
+                  );
+                })()}
               </div>
             </div>
 
@@ -165,29 +212,6 @@ export default function BannerSlider() {
             aria-label={`Ir al slide ${index + 1}`}
           />
         ))}
-      </div>
-
-      {/* Stats overlay */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6 z-20">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-3 gap-4 text-center text-white">
-            <div className="flex flex-col items-center">
-              <TrendingUp className="h-6 w-6 mb-2 text-orange-400" />
-              <span className="text-2xl font-bold">1000+</span>
-              <span className="text-sm opacity-80">Productos</span>
-            </div>
-            <div className="flex flex-col items-center">
-              <Users className="h-6 w-6 mb-2 text-orange-400" />
-              <span className="text-2xl font-bold">500+</span>
-              <span className="text-sm opacity-80">Productores</span>
-            </div>
-            <div className="flex flex-col items-center">
-              <ShoppingBag className="h-6 w-6 mb-2 text-orange-400" />
-              <span className="text-2xl font-bold">2000+</span>
-              <span className="text-sm opacity-80">Ventas</span>
-            </div>
-          </div>
-        </div>
       </div>
     </section>
   );

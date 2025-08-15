@@ -60,7 +60,7 @@ export default function RegisterForm() {
         options: {
           data: {
             // Claves esperadas por el trigger `public.handle_new_user()`
-            role: values.userType === "seller" ? "anunciante" : "interesado",
+            role: values.userType,
             full_name: `${values.firstName} ${values.lastName}`.trim(),
             user_type: values.userType,
             first_name: values.firstName,

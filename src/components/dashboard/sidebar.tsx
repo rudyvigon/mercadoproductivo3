@@ -4,30 +4,36 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, LayoutDashboard, Package, User, Menu, X } from "lucide-react";
+import { CheckCircle2, LayoutDashboard, Package, User, Menu, X, HomeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { MdHomeWork } from "react-icons/md";
+import { MdVerified } from "react-icons/md";
+import { MdOutlineShoppingCart } from "react-icons/md";
+import { BsFillPersonFill } from "react-icons/bs";
+import { RiShoppingCart2Fill } from "react-icons/ri";
+
 
 const items = [
   {
-    label: "Panel",
+    label: "Inicio ",
     href: "/dashboard",
-    icon: LayoutDashboard,
+    icon: MdHomeWork,
   },
   {
     label: "Mi Plan",
     href: "/dashboard/plan",
-    icon: CheckCircle2,
+    icon: MdVerified,
   },
   {
     label: "Mis productos",
     href: "/dashboard/products",
-    icon: Package,
+    icon: RiShoppingCart2Fill ,
   },
   {
     label: "Perfil",
     href: "/dashboard/profile",
-    icon: User,
+    icon: BsFillPersonFill ,
   },
 ] as const;
 
@@ -40,6 +46,8 @@ export function useMobileSidebar() {
 // Componente de navegación interna
 function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
   const pathname = usePathname();
+  // Orden alfabético por etiqueta, en español y sin distinguir mayúsculas/acentos
+  const navItems = [...items].sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
 
   return (
     <div className="px-3 py-4 sm:px-4 sm:py-6">
@@ -47,7 +55,7 @@ function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Menú</p>
       </div>
       <nav className="grid gap-1">
-        {items.map(({ href, label, icon: Icon }) => {
+        {navItems.map(({ href, label, icon: Icon }) => {
           const active = href === "/dashboard"
             ? pathname === "/dashboard"
             : pathname?.startsWith(href);

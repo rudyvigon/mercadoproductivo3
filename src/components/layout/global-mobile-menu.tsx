@@ -8,29 +8,30 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Menu, LogOut, LayoutDashboard, Package,
-  CheckCircle2, User as UserIcon, ShoppingBag, Home, Info,
-  Phone, CreditCard
+  Menu, LogOut
 } from "lucide-react";
+import { MdHomeWork, MdVerified, MdHome, MdInfo, MdCreditCard, MdShoppingBag, MdPhone } from "react-icons/md";
+import { BsFillPersonFill } from "react-icons/bs";
+import { RiShoppingCart2Fill } from "react-icons/ri";
 import { createClient } from "@/lib/supabase/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 
 // Items de navegación principal
 const mainNavItems = [
-  { label: "Inicio", href: "/", icon: Home },
-  { label: "Nosotros", href: "/nosotros", icon: Info },
-  { label: "Planes", href: "/planes", icon: CreditCard },
-  { label: "Marketplace", href: "/marketplace", icon: ShoppingBag },
-  { label: "Contacto", href: "/contacto", icon: Phone },
+  { label: "Inicio", href: "/", icon: MdHome },
+  { label: "Nosotros", href: "/nosotros", icon: MdInfo },
+  { label: "Planes", href: "/planes", icon: MdCreditCard },
+  { label: "Marketplace", href: "/marketplace", icon: MdShoppingBag },
+  { label: "Contacto", href: "/contacto", icon: MdPhone },
 ];
 
 // Items de navegación del dashboard
 const dashboardNavItems = [
-  { label: "Panel", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Mi Plan", href: "/dashboard/plan", icon: CheckCircle2 },
-  { label: "Mis productos", href: "/dashboard/products", icon: Package },
-  { label: "Perfil", href: "/dashboard/profile", icon: UserIcon },
+  { label: "Inicio", href: "/dashboard", icon: MdHomeWork },
+  { label: "Mi Plan", href: "/dashboard/plan", icon: MdVerified },
+  { label: "Mis productos", href: "/dashboard/products", icon: RiShoppingCart2Fill },
+  { label: "Perfil", href: "/dashboard/profile", icon: BsFillPersonFill },
 ];
 
 export default function GlobalMobileMenu() {
@@ -41,6 +42,11 @@ export default function GlobalMobileMenu() {
   const pathname = usePathname();
   // Memoizar el cliente para que la identidad sea estable entre renders
   const supabase = useMemo(() => createClient(), []);
+  // Ordenar alfabéticamente los items del dashboard (español, sin distinguir mayúsculas/acentos)
+  const sortedDashboardItems = useMemo(
+    () => [...dashboardNavItems].sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" })),
+    []
+  );
 
   // Verifica si un enlace está activo
   const isActive = (href: string) => {
@@ -175,7 +181,7 @@ export default function GlobalMobileMenu() {
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon size={16} className="shrink-0" />
                     {label}
                   </Link>
                 ))}
@@ -191,7 +197,7 @@ export default function GlobalMobileMenu() {
                     Dashboard
                   </h3>
                   <div className="grid gap-2">
-                    {dashboardNavItems.map(({ href, label, icon: Icon }) => (
+                    {sortedDashboardItems.map(({ href, label, icon: Icon }) => (
                       <Link
                         key={href}
                         href={href}
@@ -203,7 +209,7 @@ export default function GlobalMobileMenu() {
                             : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                       >
-                        <Icon className="h-4 w-4" />
+                        <Icon size={16} className="shrink-0" />
                         {label}
                       </Link>
                     ))}

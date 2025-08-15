@@ -88,6 +88,11 @@ export default async function Page() {
         .single()
     : ({ data: null } as const);
 
+  // Mostrar preferentemente el nombre dinámico del plan desde la tabla `plans`
+  if (plan?.name) {
+    planLabel = plan.name;
+  }
+
   const now = new Date();
   const periodYM = now.getFullYear() * 100 + (now.getMonth() + 1); // YYYYMM
   const { data: usage } = await supabase
