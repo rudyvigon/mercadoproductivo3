@@ -47,14 +47,12 @@ interface ProductEditFormProps {
   canPublish: boolean;
 }
 
-const CATEGORIES = [
-  "Soja", "Maíz", "Trigo", "Girasol", "Sorgo",
-  "Insumos", "Maquinaria", "Servicios", "Otros"
-];
-
 const QUANTITY_UNITS = [
   "kg", "toneladas", "litros", "unidades", "hectáreas", "horas"
 ];
+
+const TITLE_MAX = 20;
+const DESC_MAX = 250;
 
 // Provincias de Argentina
 const AR_PROVINCES = [
@@ -93,6 +91,8 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
   const [gallery, setGallery] = useState<{ id: string; url: string }[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [loadingCities, setLoadingCities] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [maxFiles, setMaxFiles] = useState<number>(6);
   const [canFeature, setCanFeature] = useState<boolean>(true);
@@ -322,42 +322,95 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Resolver límites por plan desde la tabla `plans`
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('plan_code')
-          .eq('id', user.id)
-          .single();
-        const planCode = (profile?.plan_code || '').toString();
-        if (!planCode) {
-          setMaxFiles(5);
-          setCanFeature(true);
-          setFeatureCost(10);
-          return;
+// Cargar categorías desde tabla `categories` (fallback a products.category)
+useEffect(() => {
+  (async () => {
+    setLoadingCategories(true);
+    try {
+      // 1) Intentar leer desde tabla maestra `categories`
+      const { data: catData, error: catError } = await supabase
+        .from("categories")
+        .select("*");
+
+      if (!catError && Array.isArray(catData)) {
+        const list = Array.from(
+          new Set(
+            (catData as any[])
+              .map((r) => (r?.name ?? r?.title ?? r?.label ?? r?.slug ?? "").toString().replace(/[-_]/g, " ").trim())
+              .filter(Boolean)
+          )
+        );
+        if (product.category && !list.includes(product.category)) {
+          list.unshift(product.category);
         }
-        const { data: plan } = await supabase
-          .from('plans')
-          .select('max_images_per_product, can_feature, feature_cost')
-          .eq('code', planCode)
-          .maybeSingle();
-        const maxImages = Number((plan as any)?.max_images_per_product) || 5;
-        setMaxFiles(maxImages);
-        setCanFeature(Boolean((plan as any)?.can_feature ?? true));
-        const fc: any = (plan as any)?.feature_cost;
-        setFeatureCost(typeof fc === 'number' ? fc : (fc ? Number(fc) : 10));
-      } catch {
-        // Fallback por seguridad
+        list.sort((a, b) => a.localeCompare(b));
+        setCategories(list);
+        return;
+      }
+
+      // 2) Fallback: deducir desde products.category
+      const { data, error } = await supabase
+        .from("products")
+        .select("category")
+        .not("category", "is", null);
+      if (error) throw error;
+      const list = Array.from(
+        new Set(
+          (data || [])
+            .map((r: any) => (r?.category ?? "").toString().trim())
+            .filter(Boolean)
+        )
+      );
+      if (product.category && !list.includes(product.category)) {
+        list.unshift(product.category);
+      }
+      list.sort((a, b) => a.localeCompare(b));
+      setCategories(list);
+    } catch {
+      const fallback = product.category ? [product.category] : [];
+      setCategories(fallback);
+    } finally {
+      setLoadingCategories(false);
+    }
+  })();
+}, [supabase, product.category]);
+
+// Resolver límites por plan desde la tabla `plans`
+useEffect(() => {
+  (async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('plan_code')
+        .eq('id', user.id)
+        .single();
+      const planCode = (profile?.plan_code || '').toString();
+      if (!planCode) {
         setMaxFiles(5);
         setCanFeature(true);
         setFeatureCost(10);
+        return;
       }
-    })();
-  }, [supabase]);
+      const { data: plan } = await supabase
+        .from('plans')
+        .select('max_images_per_product, can_feature, feature_cost')
+        .eq('code', planCode)
+        .maybeSingle();
+      const maxImages = Number((plan as any)?.max_images_per_product) || 5;
+      setMaxFiles(maxImages);
+      setCanFeature(Boolean((plan as any)?.can_feature ?? true));
+      const fc: any = (plan as any)?.feature_cost;
+      setFeatureCost(typeof fc === 'number' ? fc : (fc ? Number(fc) : 10));
+    } catch {
+      // Fallback por seguridad
+      setMaxFiles(5);
+      setCanFeature(true);
+      setFeatureCost(10);
+    }
+  })();
+}, [supabase]);
 
   useEffect(() => {
     fetchCities(formData.province);
@@ -365,6 +418,15 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
   }, [formData.province]);
 
   const handleSave = async () => {
+    // Validación de longitudes antes de guardar
+    if ((formData.title || "").length > TITLE_MAX) {
+      toast.error(`El título supera ${TITLE_MAX} caracteres`);
+      return;
+    }
+    if ((formData.description || "").length > DESC_MAX) {
+      toast.error(`La descripción supera ${DESC_MAX} caracteres`);
+      return;
+    }
     setLoading(true);
     try {
       const { province, city, ...rest } = formData as any;
@@ -777,8 +839,10 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
                 value={formData.title}
                 onChange={(e) => handleInputChange('title', e.target.value)}
                 placeholder="Ej: Soja de excelente calidad"
+                maxLength={TITLE_MAX}
                 className="mt-1"
               />
+              <div className="text-xs text-muted-foreground">{(formData.title?.length ?? 0)} / {TITLE_MAX} caracteres</div>
             </div>
 
             {/* Descripción */}
@@ -790,26 +854,33 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
                 onChange={(e) => handleInputChange('description', e.target.value)}
                 placeholder="Describe las características, calidad, condiciones..."
                 rows={4}
+                maxLength={DESC_MAX}
                 className="mt-1 resize-none"
               />
+              <div className="text-[11px] text-muted-foreground">{(formData.description?.length ?? 0)} / {DESC_MAX} caracteres</div>
             </div>
 
             {/* Categoría y Ubicación */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="category">Categoría *</Label>
-                <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                <Select
+                  value={formData.category}
+                  onValueChange={(value) => handleInputChange('category', value)}
+                  disabled={loadingCategories}
+                >
                   <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Selecciona una categoría" />
+                    <SelectValue placeholder={loadingCategories ? "Cargando..." : "Selecciona una categoría"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((cat) => (
+                    {categories.map((cat) => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
+ 
               <div>
                 <Label htmlFor="province">Provincia *</Label>
                 <Select value={formData.province} onValueChange={(value) => handleInputChange('province', value)}>

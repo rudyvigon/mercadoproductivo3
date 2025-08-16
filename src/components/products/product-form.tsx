@@ -54,8 +54,8 @@ const AR_PROVINCES = [
 ];
 
 const productSchema = z.object({
-  title: z.string().min(3, "Mínimo 3 caracteres"),
-  description: z.string().min(10, "Mínimo 10 caracteres"),
+  title: z.string().min(3, "Mínimo 3 caracteres").max(20, "Máximo 20 caracteres"),
+  description: z.string().min(10, "Mínimo 10 caracteres").max(250, "Máximo 250 caracteres"),
   category: z.string().min(1, "Selecciona una categoría"),
   price: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa un precio válido" }),
   quantity_value: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa una cantidad válida" }),
@@ -84,6 +84,8 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
   const isFull = files.length >= maxFiles;
   const [cities, setCities] = useState<string[]>([]);
   const [loadingCities, setLoadingCities] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -99,12 +101,6 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       city: "",
     },
   });
-
-  // Asegurar que provincia y ciudad estén vacías al montar (placeholder visible)
-  useEffect(() => {
-    form.setValue("province", "", { shouldValidate: true });
-    form.setValue("city", "", { shouldValidate: true });
-  }, []);
 
   useEffect(() => {
     // doble chequeo por si el usuario entró directo a la URL
@@ -201,8 +197,57 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
     })();
   }, [supabase]);
 
+  // Cargar categorías desde tabla `categories` (fallback a products.category)
+  useEffect(() => {
+    (async () => {
+      setLoadingCategories(true);
+      try {
+        // 1) Intentar desde tabla maestra `categories`
+        const { data: catData, error: catError } = await supabase
+          .from("categories")
+          .select("*");
+
+        if (!catError && Array.isArray(catData)) {
+          const list = Array.from(
+            new Set(
+              (catData as any[])
+                .map((r) => (r?.name ?? r?.title ?? r?.label ?? r?.slug ?? "").toString().replace(/[-_]/g, " ").trim())
+                .filter(Boolean)
+            )
+          ).sort((a, b) => a.localeCompare(b));
+          setCategories(list);
+          return;
+        }
+
+        // 2) Fallback: deducir desde products.category si `categories` no existe o falla
+        const { data, error } = await supabase
+          .from("products")
+          .select("category")
+          .not("category", "is", null);
+        if (error) throw error;
+        const list = Array.from(
+          new Set(
+            (data || [])
+              .map((r: any) => (r?.category ?? "").toString().trim())
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+        setCategories(list);
+      } catch {
+        setCategories([]);
+      } finally {
+        setLoadingCategories(false);
+      }
+    })();
+  }, [supabase]);
+
+  function showError(name: keyof ProductFormValues) {
+    const state = form.getFieldState(name, form.formState);
+    return !!(state.error && (state.isTouched || form.formState.isSubmitted));
+  }
+
   function fieldErrorClass(name: keyof ProductFormValues) {
-    return form.getFieldState(name, form.formState).error
+    return showError(name)
       ? "border-red-500 focus-visible:ring-red-500"
       : undefined;
   }
@@ -349,65 +394,60 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="title" className={form.getFieldState("title", form.formState).error ? "text-red-600" : undefined}>
+        <Label htmlFor="title" className={showError("title") ? "text-red-600" : undefined}>
           Título <span className="text-red-600">*</span>
         </Label>
-        <Input id="title" {...form.register("title")} disabled={saving} className={fieldErrorClass("title")} />
-        <div className="text-xs text-muted-foreground">{(form.watch("title")?.length ?? 0)} caracteres</div>
-        {form.getFieldState("title", form.formState).error && (
+        <Input id="title" maxLength={20} {...form.register("title")} disabled={saving} className={fieldErrorClass("title")} />
+        <div className="text-xs text-muted-foreground">{(form.watch("title")?.length ?? 0)} / 20 caracteres</div>
+        {showError("title") && (
           <p className="text-xs text-red-600">{form.getFieldState("title", form.formState).error?.message}</p>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="description" className={form.getFieldState("description", form.formState).error ? "text-red-600" : undefined}>
+        <Label htmlFor="description" className={showError("description") ? "text-red-600" : undefined}>
           Descripción <span className="text-red-600">*</span>
         </Label>
-        <Textarea id="description" rows={5} {...form.register("description")} disabled={saving} className={fieldErrorClass("description")} />
-        <div className="text-[11px] text-muted-foreground">{(form.watch("description")?.length ?? 0)} caracteres</div>
-        {form.getFieldState("description", form.formState).error && (
+        <Textarea id="description" rows={5} maxLength={250} {...form.register("description")} disabled={saving} className={fieldErrorClass("description")} />
+        <div className="text-[11px] text-muted-foreground">{(form.watch("description")?.length ?? 0)} / 250 caracteres</div>
+        {showError("description") && (
           <p className="text-xs text-red-600">{form.getFieldState("description", form.formState).error?.message}</p>
         )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="space-y-2 sm:col-span-1">
-          <Label className={form.getFieldState("category", form.formState).error ? "text-red-600" : undefined}>Categoría <span className="text-red-600">*</span></Label>
-          <Select onValueChange={(v) => form.setValue("category", v, { shouldValidate: true })} disabled={saving}>
+          <Label className={showError("category") ? "text-red-600" : undefined}>Categoría <span className="text-red-600">*</span></Label>
+          <Select
+            value={form.watch("category") || ""}
+            onValueChange={(v) => form.setValue("category", v, { shouldValidate: true, shouldDirty: true, shouldTouch: true })}
+            disabled={saving || loadingCategories}
+          >
             <SelectTrigger className={fieldErrorClass("category")}>
-              <SelectValue placeholder="Selecciona" />
+              <SelectValue placeholder={loadingCategories ? "Cargando..." : "Selecciona"} />
             </SelectTrigger>
             <SelectContent>
-              {[
-                "Maíz",
-                "Soja",
-                "Trigo",
-                "Girasol",
-                "Cebada",
-                "Fertilizantes",
-                "Insumos",
-                "Otros",
-              ].map((c) => (
+              {categories.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {form.getFieldState("category", form.formState).error && (
+          {showError("category") && (
             <p className="text-xs text-red-600">{form.getFieldState("category", form.formState).error?.message}</p>
           )}
         </div>
         <div className="space-y-2 sm:col-span-1">
-          <Label className={form.getFieldState("price", form.formState).error ? "text-red-600" : undefined}>Precio (ARS) <span className="text-red-600">*</span></Label>
+          <Label className={showError("price") ? "text-red-600" : undefined}>Precio (ARS) <span className="text-red-600">*</span></Label>
           <Input inputMode="decimal" placeholder="0,00" {...form.register("price")} disabled={saving} className={fieldErrorClass("price")} />
-          {form.getFieldState("price", form.formState).error && (
+          {showError("price") && (
             <p className="text-xs text-red-600">{form.getFieldState("price", form.formState).error?.message}</p>
           )}
         </div>
         <div className="space-y-2 sm:col-span-1">
-          <Label className={form.getFieldState("quantity_value", form.formState).error ? "text-red-600" : undefined}>Cantidad <span className="text-red-600">*</span></Label>
+          <Label className={showError("quantity_value") ? "text-red-600" : undefined}>Cantidad <span className="text-red-600">*</span></Label>
           <div className="flex gap-2">
             <Input inputMode="decimal" placeholder="0" {...form.register("quantity_value")} disabled={saving} className={fieldErrorClass("quantity_value")} />
-            <Select onValueChange={(v) => form.setValue("quantity_unit", v as any, { shouldValidate: true })} disabled={saving}>
+            <Select onValueChange={(v) => form.setValue("quantity_unit", v as any, { shouldValidate: true, shouldDirty: true, shouldTouch: true })} disabled={saving}>
               <SelectTrigger className={fieldErrorClass("quantity_unit") + " w-36"}>
                 <SelectValue placeholder="Unidad" />
               </SelectTrigger>
@@ -418,7 +458,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
               </SelectContent>
             </Select>
           </div>
-          {(form.getFieldState("quantity_value", form.formState).error || form.getFieldState("quantity_unit", form.formState).error) && (
+          {(showError("quantity_value") || showError("quantity_unit")) && (
             <p className="text-xs text-red-600">Revisa cantidad y unidad</p>
           )}
         </div>
@@ -427,8 +467,8 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       {/* Provincia y Localidad */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label className={form.getFieldState("province", form.formState).error ? "text-red-600" : undefined}>Provincia <span className="text-red-600">*</span></Label>
-          <Select value={form.watch("province") || ""} onValueChange={(v) => form.setValue("province", v, { shouldValidate: true })} disabled={saving}>
+          <Label className={showError("province") ? "text-red-600" : undefined}>Provincia <span className="text-red-600">*</span></Label>
+          <Select value={form.watch("province") || ""} onValueChange={(v) => form.setValue("province", v, { shouldValidate: true, shouldDirty: true, shouldTouch: true })} disabled={saving}>
             <SelectTrigger className={fieldErrorClass("province")}>
               <SelectValue placeholder="Seleccione provincia" />
             </SelectTrigger>
@@ -438,14 +478,14 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
               ))}
             </SelectContent>
           </Select>
-          {form.getFieldState("province", form.formState).error && (
+          {showError("province") && (
             <p className="text-xs text-red-600">{form.getFieldState("province", form.formState).error?.message}</p>
           )}
         </div>
         <div className="space-y-2">
-          <Label className={form.getFieldState("city", form.formState).error ? "text-red-600" : undefined}>Localidad <span className="text-red-600">*</span></Label>
-          <Select value={form.watch("city") || ""} onValueChange={(v) => form.setValue("city", v, { shouldValidate: true })} disabled={saving || !form.watch("province") || loadingCities}>
-            <SelectTrigger className={fieldErrorClass("city")}>
+          <Label className={showError("city") ? "text-red-600" : undefined}>Localidad <span className="text-red-600">*</span></Label>
+          <Select value={form.watch("city") || ""} onValueChange={(v) => form.setValue("city", v, { shouldValidate: true, shouldDirty: true, shouldTouch: true })} disabled={saving || !form.watch("province") || loadingCities}>
+            <SelectTrigger className={fieldErrorClass("city")}> 
               <SelectValue placeholder={loadingCities ? "Cargando..." : (!form.watch("province") ? "Selecciona provincia primero" : "Selecciona localidad")} />
             </SelectTrigger>
             <SelectContent>
@@ -459,7 +499,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
               ))}
             </SelectContent>
           </Select>
-          {form.getFieldState("city", form.formState).error && (
+          {showError("city") && (
             <p className="text-xs text-red-600">{form.getFieldState("city", form.formState).error?.message}</p>
           )}
         </div>

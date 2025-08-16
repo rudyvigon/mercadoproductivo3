@@ -1,11 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProductGallery } from "@/components/products/product-gallery";
 import { CalendarDays, MapPin, Package, ArrowLeft, Star, Tag } from "lucide-react";
+import SellerMoreProducts from "@/components/products/seller-more-products";
+import SimilarProducts from "@/components/products/similar-products";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,6 +25,7 @@ type Product = {
   quantity_unit: string;
   featured_until?: string | null;
   created_at: string;
+  user_id: string;
 };
 
 export default async function PublicProductPage({ params }: { params: { id: string } }) {
@@ -30,7 +35,7 @@ export default async function PublicProductPage({ params }: { params: { id: stri
   const { data: product, error } = await supabase
     .from("products")
     .select(
-      "id,title,description,price,category,location,quantity_value,quantity_unit,featured_until,created_at"
+      "id,title,description,price,category,location,quantity_value,quantity_unit,featured_until,created_at,user_id"
     )
     .eq("id", params.id)
     .single();
@@ -65,11 +70,27 @@ export default async function PublicProductPage({ params }: { params: { id: stri
     .order("id", { ascending: true });
   const images = (gallery || []).map((g: any) => g.url as string);
 
+  // Cargar perfil del vendedor desde endpoint público para mantener consistencia
+  const hdrs = headers();
+  const host = hdrs.get("x-forwarded-host") || hdrs.get("host");
+  const proto = hdrs.get("x-forwarded-proto") || "http";
+  const baseUrl = host ? `${proto}://${host}` : "";
+  let seller: any = null;
+  try {
+    const res = await fetch(`${baseUrl}/api/public/sellers/${product.user_id}`, { cache: "no-store" });
+    if (res.ok) {
+      const payload = await res.json();
+      seller = payload?.seller || null;
+    }
+  } catch (e) {
+    console.error("Failed to fetch seller info", e);
+  }
+
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <Button asChild variant="ghost" className="w-fit px-0 text-primary">
-          <Link href="/marketplace" className="inline-flex items-center gap-2">
+          <Link href="/" className="inline-flex items-center gap-2">
             <ArrowLeft className="h-4 w-4" /> Volver al marketplace
           </Link>
         </Button>
@@ -121,9 +142,41 @@ export default async function PublicProductPage({ params }: { params: { id: stri
             </CardContent>
           </Card>
 
+          {/* Perfil del vendedor */}
+          {seller && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Vendedor</CardTitle>
+                <CardDescription>Información del perfil</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-12 w-12">
+                    <AvatarImage src={seller.avatar_url || undefined} alt={seller.full_name || seller.company || "Vendedor"} />
+                    <AvatarFallback>{(seller.full_name?.[0] || seller.company?.[0] || "V").toUpperCase?.()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-gray-900 truncate">{seller.company || seller.full_name || "Vendedor"}</div>
+                    <div className="text-sm text-gray-500 truncate">{seller.city || seller.province ? `${seller.city ?? ""}${seller.city && seller.province ? ", " : ""}${seller.province ?? ""}` : "Ubicación no especificada"}</div>
+                  </div>
+                  <Button asChild variant="secondary">
+                    <Link href={`/vendedores/${product.user_id}`}>Ver perfil</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* CTA opcionales, como contactar al vendedor, pueden añadirse aquí en el futuro */}
         </div>
       </div>
+
+      {/* Más del vendedor */}
+      <SellerMoreProducts sellerId={product.user_id} excludeProductId={product.id} />
+
+      {/* Productos similares */}
+      <SimilarProducts category={product.category} excludeProductId={product.id} excludeSellerId={product.user_id} />
+
     </div>
   );
 }

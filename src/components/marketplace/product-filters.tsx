@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import {
   MapPin, DollarSign, Package, Tag 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 export interface ProductFilters {
   search: string;
@@ -56,11 +57,23 @@ export default function ProductFilters({
 }: ProductFiltersProps) {
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [localPriceRange, setLocalPriceRange] = useState([filters.minPrice, filters.maxPrice]);
+  const [locationQuery, setLocationQuery] = useState(filters.location && filters.location !== "all" ? filters.location : "");
+  const [locationResults, setLocationResults] = useState<string[]>([]);
+  const supabase = useMemo(() => createClient(), []);
 
   // Actualizar rango de precios local cuando cambian los filtros
   useEffect(() => {
     setLocalPriceRange([filters.minPrice, filters.maxPrice]);
   }, [filters.minPrice, filters.maxPrice]);
+
+  // Sincronizar query de ubicación cuando cambia el filtro externo
+  useEffect(() => {
+    if (!filters.location || filters.location === "all") {
+      setLocationQuery("");
+    } else {
+      setLocationQuery(filters.location);
+    }
+  }, [filters.location]);
 
   const updateFilter = (key: keyof ProductFilters, value: any) => {
     onFiltersChange({
@@ -80,6 +93,39 @@ export default function ProductFilters({
       maxPrice: values[1]
     });
   };
+
+  // Búsqueda con debounce de ubicaciones distintas en products.location
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      const q = locationQuery.trim();
+      if (q.length < 1) {
+        if (active) setLocationResults([]);
+        return;
+      }
+      // pequeño debounce
+      await new Promise((r) => setTimeout(r, 250));
+      if (!active) return;
+      const { data, error } = await supabase
+        .from('products')
+        .select('location')
+        .not('location', 'is', null)
+        .neq('location', '')
+        .ilike('location', `%${q}%`)
+        .order('location', { ascending: true })
+        .limit(50);
+      if (!active) return;
+      if (error) {
+        console.error('Error fetching locations:', error);
+        setLocationResults([]);
+        return;
+      }
+      const list = Array.from(new Set((data || []).map((r: any) => r.location as string))).slice(0, 10);
+      setLocationResults(list);
+    };
+    run();
+    return () => { active = false; };
+  }, [locationQuery, supabase]);
 
   const clearFilters = () => {
     onFiltersChange({
@@ -113,9 +159,9 @@ export default function ProductFilters({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Barra de búsqueda y ordenamiento */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-2">
         {/* Búsqueda */}
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -123,14 +169,14 @@ export default function ProductFilters({
             placeholder="Buscar productos..."
             value={filters.search}
             onChange={(e) => updateFilter("search", e.target.value)}
-            className="pl-10 h-12"
+            className="pl-10 h-10"
           />
         </div>
 
         {/* Ordenamiento */}
-        <div className="sm:w-64">
+        <div className="sm:w-56">
           <Select value={filters.sortBy} onValueChange={(value) => updateFilter("sortBy", value)}>
-            <SelectTrigger className="h-12">
+            <SelectTrigger className="h-10">
               <SelectValue placeholder="Ordenar por" />
             </SelectTrigger>
             <SelectContent>
@@ -143,11 +189,11 @@ export default function ProductFilters({
           </Select>
         </div>
 
-        {/* Botón de filtros móvil */}
+        {/* Botón de filtros (desktop y móvil) */}
         <Button
           variant="outline"
           onClick={() => setIsFiltersOpen(!isFiltersOpen)}
-          className="sm:hidden h-12 px-4"
+          className="h-10 px-3"
         >
           <Filter className="h-4 w-4 mr-2" />
           Filtros
@@ -161,15 +207,14 @@ export default function ProductFilters({
 
       {/* Filtros avanzados */}
       <div className={cn(
-        "space-y-4",
-        "sm:block", // Siempre visible en desktop
-        isFiltersOpen ? "block" : "hidden" // Collapsible en móvil
+        "space-y-2",
+        isFiltersOpen ? "block" : "hidden"
       )}>
         <Card>
-          <CardHeader className="pb-4">
+          <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg flex items-center">
-                <Filter className="h-5 w-5 mr-2" />
+              <CardTitle className="text-base flex items-center">
+                <Filter className="h-4 w-4 mr-2" />
                 Filtros
                 {getActiveFiltersCount() > 0 && (
                   <Badge className="ml-2 bg-orange-500">
@@ -185,8 +230,8 @@ export default function ProductFilters({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Categoría */}
               <div className="space-y-2">
                 <Label className="flex items-center text-sm font-medium">
@@ -194,7 +239,7 @@ export default function ProductFilters({
                   Categoría
                 </Label>
                 <Select value={filters.category} onValueChange={(value) => updateFilter("category", value)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Todas las categorías" />
                   </SelectTrigger>
                   <SelectContent>
@@ -214,28 +259,55 @@ export default function ProductFilters({
                   <MapPin className="h-4 w-4 mr-2" />
                   Ubicación
                 </Label>
-                <Select value={filters.location} onValueChange={(value) => updateFilter("location", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas las ubicaciones" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas las ubicaciones</SelectItem>
-                    {locations.map((location) => (
-                      <SelectItem key={location} value={location}>
-                        {location}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Input
+                    placeholder="Buscar ubicación..."
+                    value={locationQuery}
+                    onChange={(e) => setLocationQuery(e.target.value)}
+                    className="pr-10 h-9"
+                  />
+                  {/* Dropdown de sugerencias */}
+                  {(locationQuery.length >= 1) && (
+                    <div className="absolute z-20 mt-1 w-full rounded-md border bg-white shadow max-h-56 overflow-auto">
+                      <button
+                        type="button"
+                        className="w-full text-left px-2 py-1.5 hover:bg-orange-50 text-sm"
+                        onClick={() => {
+                          updateFilter("location", "all");
+                          setLocationQuery("");
+                        }}
+                      >
+                        Todas las ubicaciones
+                      </button>
+                      {locationResults.length === 0 ? (
+                        <div className="px-2 py-1.5 text-sm text-gray-500">No se encontraron ubicaciones</div>
+                      ) : (
+                        locationResults.map((loc) => (
+                          <button
+                            key={loc}
+                            type="button"
+                            className="w-full text-left px-2 py-1.5 hover:bg-orange-50 text-sm"
+                            onClick={() => {
+                              updateFilter("location", loc);
+                              setLocationQuery(loc);
+                            }}
+                          >
+                            {loc}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Rango de precios */}
-              <div className="space-y-3 md:col-span-2">
+              <div className="space-y-2 md:col-span-2">
                 <Label className="flex items-center text-sm font-medium">
                   <DollarSign className="h-4 w-4 mr-2" />
                   Rango de precios
                 </Label>
-                <div className="px-2">
+                <div className="px-1">
                   <Slider
                     value={localPriceRange}
                     onValueChange={handlePriceRangeChange}
@@ -245,7 +317,7 @@ export default function ProductFilters({
                     step={1000}
                     className="w-full"
                   />
-                  <div className="flex justify-between text-sm text-gray-500 mt-2">
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
                     <span>{formatPrice(localPriceRange[0])}</span>
                     <span>{formatPrice(localPriceRange[1])}</span>
                   </div>
@@ -254,7 +326,7 @@ export default function ProductFilters({
             </div>
 
             {/* Filtros adicionales */}
-            <div className="pt-4 border-t">
+            <div className="pt-2">
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="featured"

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ShoppingBag } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
@@ -84,29 +84,12 @@ export default function BannerSlider() {
 
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % bannerSlides.length);
-    }, 8000);
+    }, 6000);
 
     return () => clearInterval(interval);
   }, [isAutoPlaying]);
 
-  const goToSlide = (index: number) => {
-    setCurrentSlide(index);
-    setIsAutoPlaying(false);
-    // Reactivar auto-play después de 10 segundos
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  };
-
-  const nextSlide = () => {
-    setCurrentSlide((prev) => (prev + 1) % bannerSlides.length);
-    setIsAutoPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  };
-
-  const prevSlide = () => {
-    setCurrentSlide((prev) => (prev - 1 + bannerSlides.length) % bannerSlides.length);
-    setIsAutoPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  };
+  // Navegación manual y dots eliminados por solicitud de UI.
 
   return (
     <section className="relative w-full h-[400px] md:h-[500px] lg:h-[600px] overflow-hidden bg-gradient-to-r from-orange-50 to-orange-100">
@@ -116,13 +99,14 @@ export default function BannerSlider() {
           <div
             key={slide.id}
             className={cn(
-              "absolute inset-0 w-full h-full transition-all duration-700 ease-in-out",
-              index === currentSlide ? "opacity-100 translate-x-0" : "opacity-0 translate-x-full"
+              "absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out",
+              index === currentSlide ? "opacity-100" : "opacity-0"
             )}
             style={{
               backgroundImage: `url(${slideImages[index] ?? "https://via.placeholder.com/1200x400?text=Banner"})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
+              willChange: "opacity",
             }}
           >
             {/* Background con overlay */}
@@ -179,40 +163,7 @@ export default function BannerSlider() {
           </div>
         ))}
       </div>
-
-      {/* Controles de navegación */}
-      <button
-        onClick={prevSlide}
-        className="absolute left-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
-        aria-label="Slide anterior"
-      >
-        <ChevronLeft className="h-6 w-6 text-white" />
-      </button>
-
-      <button
-        onClick={nextSlide}
-        className="absolute right-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
-        aria-label="Siguiente slide"
-      >
-        <ChevronRight className="h-6 w-6 text-white" />
-      </button>
-
-      {/* Indicadores */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex space-x-2">
-        {bannerSlides.map((_, index) => (
-          <button
-            key={index}
-            onClick={() => goToSlide(index)}
-            className={cn(
-              "w-3 h-3 rounded-full transition-all duration-300",
-              index === currentSlide 
-                ? "bg-white scale-125" 
-                : "bg-white/50 hover:bg-white/75"
-            )}
-            aria-label={`Ir al slide ${index + 1}`}
-          />
-        ))}
-      </div>
+      
     </section>
   );
 }

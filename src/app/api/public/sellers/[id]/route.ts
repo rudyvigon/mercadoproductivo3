@@ -35,7 +35,62 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     }
 
     const supabase = createAdminClient();
-    const columns = [
+
+    // Intentar obtener desde la vista optimizada con estadísticas
+    const viewCols = [
+      "seller_id",
+      "first_name",
+      "last_name",
+      "full_name",
+      "company",
+      "city",
+      "province",
+      "avatar_url",
+      "plan_code",
+      "joined_at",
+      "products_count",
+      "updated_at",
+    ].join(", ");
+
+    const { data: viewRow, error: viewError } = await supabase
+      .from("v_seller_stats")
+      .select(viewCols)
+      .eq("seller_id", id)
+      .single();
+
+    if (!viewError && viewRow) {
+      const row: any = viewRow;
+      const first = (row.first_name || "").trim();
+      const last = (row.last_name || "").trim();
+      const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
+      const location = row.city && row.province ? `${row.city}, ${row.province}` : null;
+      const plan_label = planCodeToLabel(row.plan_code);
+
+      return NextResponse.json(
+        {
+          seller: {
+            id,
+            first_name: row.first_name ?? null,
+            last_name: row.last_name ?? null,
+            full_name,
+            company: row.company ?? null,
+            city: row.city ?? null,
+            province: row.province ?? null,
+            location,
+            avatar_url: row.avatar_url ?? null,
+            created_at: row.joined_at ?? row.updated_at ?? null,
+            joined_at: row.joined_at ?? null,
+            plan_code: row.plan_code ?? null,
+            plan_label,
+            products_count: row.products_count ?? 0,
+          },
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    // Fallback a profiles + conteo de productos (compatibilidad)
+    const profCols = [
       "id",
       "first_name",
       "last_name",
@@ -49,35 +104,15 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       "plan_code",
     ].join(", ");
 
-    type ProfileRow = {
-      id: string;
-      first_name: string | null;
-      last_name: string | null;
-      full_name: string | null;
-      company: string | null;
-      city: string | null;
-      province: string | null;
-      avatar_url: string | null;
-      updated_at: string | null;
-      plan_activated_at: string | null;
-      plan_code: string | null;
-    };
-
     const { data, error } = await supabase
       .from("profiles")
-      .select(columns)
+      .select(profCols)
       .eq("id", id)
       .single();
 
     if (error) {
       return NextResponse.json(
-        {
-          error: "QUERY_ERROR",
-          message: (error as any)?.message || "No se pudo obtener el perfil del vendedor",
-          code: (error as any)?.code ?? null,
-          details: (error as any)?.details ?? null,
-          hint: (error as any)?.hint ?? null,
-        },
+        { error: "QUERY_ERROR", message: (error as any)?.message || "No se pudo obtener el perfil del vendedor" },
         { status: 500 }
       );
     }
@@ -86,13 +121,19 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       return NextResponse.json({ error: "NOT_FOUND", message: "Vendedor no encontrado" }, { status: 404 });
     }
 
-    const row = data as unknown as ProfileRow;
+    const row = data as any;
     const first = (row.first_name || "").trim();
     const last = (row.last_name || "").trim();
     const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
     const location = row.city && row.province ? `${row.city}, ${row.province}` : null;
     const plan_label = planCodeToLabel(row.plan_code);
-    const created_at = row.updated_at ?? row.plan_activated_at ?? null;
+    const created_at = row.plan_activated_at ?? row.updated_at ?? null;
+
+    // Conteo de productos
+    const { count: products_count } = await supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", id);
 
     return NextResponse.json(
       {
@@ -107,8 +148,10 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
           location,
           avatar_url: row.avatar_url ?? null,
           created_at,
+          joined_at: created_at,
           plan_code: row.plan_code ?? null,
           plan_label,
+          products_count: products_count || 0,
         },
       },
       {

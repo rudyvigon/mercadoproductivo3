@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import type React from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -11,9 +12,17 @@ import {
   Star, MapPin, Eye, Heart, Share2, 
   Package, Clock, User, Phone 
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { ProductFilters } from "./product-filters";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 
 interface Product {
   id: string;
@@ -26,6 +35,7 @@ interface Product {
   created_at: string;
   featured_until?: string;
   user_id: string;
+  location?: string;
   profiles?: {
     first_name?: string;
     last_name?: string;
@@ -39,142 +49,114 @@ interface Product {
 interface ProductsGridProps {
   filters: ProductFilters;
   onProductsCountChange: (count: number) => void;
+  sellerId?: string;
+  excludeProductId?: string;
+  excludeSellerId?: string;
+  variant?: "default" | "comfortable" | "compact";
+  pageSize?: number;
+  showPagination?: boolean;
 }
 
-export default function ProductsGrid({ filters, onProductsCountChange }: ProductsGridProps) {
+export default function ProductsGrid({ filters, onProductsCountChange, sellerId, excludeProductId, excludeSellerId, variant = "default", pageSize, showPagination = true }: ProductsGridProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const DEFAULT_PAGE_SIZE = 12;
+  const PAGE_SIZE = pageSize ?? DEFAULT_PAGE_SIZE;
 
-  const supabase = createClient();
-  const PRODUCTS_PER_PAGE = 12;
+  // Caché simple en memoria por número de página para transiciones instantáneas
+  const pageCacheRef = useRef<Record<number, Product[]>>({});
 
-  // Cargar productos
-  useEffect(() => {
-    loadProducts(true);
-  }, [filters]);
+  // Ref al inicio de la sección para desplazar la vista al paginar
+  const sectionTopRef = useRef<HTMLDivElement | null>(null);
 
-  const loadProducts = async (reset = false) => {
+  // (se mueve más abajo, después de declarar loadProducts)
+
+  const loadProducts = useCallback(async (reset = false, pageOverride?: number) => {
     try {
+      const currentPage = reset ? (pageOverride ?? 1) : (pageOverride ?? page);
+
       if (reset) {
-        setLoading(true);
-        setPage(1);
+        // Si hay caché, mostrarla al instante y evitar el flicker de loading
+        const cached = pageCacheRef.current[currentPage];
+        if (!cached) {
+          setLoading(true);
+        } else {
+          setProducts(cached);
+          setLoading(false);
+        }
+        // Si se está navegando a una página específica, no forzar page=1
+        if (!pageOverride || pageOverride === 1) {
+          setPage(1);
+        }
       } else {
         setLoadingMore(true);
       }
+      const params = new URLSearchParams();
+      params.set('page', String(currentPage));
+      params.set('pageSize', String(PAGE_SIZE));
+      if (filters.search) params.set('search', filters.search);
+      if (filters.category) params.set('category', filters.category);
+      params.set('minPrice', String(filters.minPrice ?? 0));
+      params.set('maxPrice', String(filters.maxPrice ?? 999999999));
+      if (filters.location) params.set('location', filters.location);
+      if (filters.sortBy) params.set('sortBy', filters.sortBy);
+      params.set('onlyFeatured', String(!!filters.onlyFeatured));
+      if (sellerId) params.set('sellerId', sellerId);
+      if (excludeProductId) params.set('excludeProductId', excludeProductId);
+      if (excludeSellerId) params.set('excludeSellerId', excludeSellerId);
 
-      const currentPage = reset ? 1 : page;
-      console.log('Loading products with filters:', filters);
-
-      const from = (currentPage - 1) * PRODUCTS_PER_PAGE;
-      const to = from + PRODUCTS_PER_PAGE - 1;
-
-      let query = supabase
-        .from('products')
-        .select('*')
-        .range(from, to);
-
-      // Aplicar filtros
-      if (filters.search) {
-        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,category.ilike.%${filters.search}%`);
+      const res = await fetch(`/api/public/products?${params.toString()}`, {
+        method: 'GET',
+      });
+      if (!res.ok) {
+        throw new Error(`Error de API (${res.status})`);
       }
-
-      if (filters.category && filters.category !== "all") {
-        query = query.eq('category', filters.category);
-      }
-
-      if (filters.minPrice > 0 || filters.maxPrice < 999999999) {
-        query = query.gte('price', filters.minPrice).lte('price', filters.maxPrice);
-      }
-
-      // Nota: El filtro de ubicación requiere una consulta más compleja con joins
-      // Por ahora lo omitimos para evitar errores, se puede implementar más adelante
-
-      if (filters.onlyFeatured) {
-        query = query.not('featured_until', 'is', null)
-                    .gte('featured_until', new Date().toISOString());
-      }
-
-      // Aplicar ordenamiento
-      switch (filters.sortBy) {
-        case 'newest':
-          query = query.order('created_at', { ascending: false });
-          break;
-        case 'oldest':
-          query = query.order('created_at', { ascending: true });
-          break;
-        case 'price_asc':
-          query = query.order('price', { ascending: true });
-          break;
-        case 'price_desc':
-          query = query.order('price', { ascending: false });
-          break;
-        case 'featured':
-          query = query.order('featured_until', { ascending: false, nullsFirst: false })
-                      .order('created_at', { ascending: false });
-          break;
-        case 'alphabetical':
-          query = query.order('title', { ascending: true });
-          break;
-        default:
-          query = query.order('created_at', { ascending: false });
-      }
-
-      const { data, error, count } = await query;
-
-      if (error) {
-        console.error('Supabase query error:', error);
-        throw error;
-      }
-
-      // Obtener datos del vendedor e imagen principal para cada producto
-      const productsWithImages = await Promise.all(
-        (data || []).map(async (product) => {
-          // Buscar primera imagen en product_images
-          let primaryImageUrl: string | null = null;
-          try {
-            const { data: imgRows } = await supabase
-              .from('product_images')
-              .select('url')
-              .eq('product_id', product.id)
-              .order('id', { ascending: true })
-              .limit(1);
-            primaryImageUrl = imgRows && imgRows.length > 0 ? (imgRows[0] as any).url : null;
-          } catch {}
-
-          // Obtener datos del vendedor por separado
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('first_name, last_name, city, province, company')
-            .eq('id', product.user_id)
-            .single();
-
-          return {
-            ...product,
-            primaryImageUrl,
-            profiles: profileData || {}
-          };
-        })
-      );
+      const json = await res.json();
+      const items: Product[] = json.items || [];
+      const total: number = json.total ?? 0;
+      const apiHasMore: boolean = json.hasMore ?? false;
 
       if (reset) {
-        setProducts(productsWithImages);
+        setProducts(items);
       } else {
-        setProducts(prev => [...prev, ...productsWithImages]);
+        setProducts(prev => [...prev, ...items]);
       }
 
-      setHasMore(productsWithImages.length === PRODUCTS_PER_PAGE);
-      
-      // Obtener conteo total para filtros
+      // Guardar en caché esta página
+      pageCacheRef.current[currentPage] = items;
+
+      setHasMore(apiHasMore);
+
       if (reset) {
-        const { count: totalCount } = await supabase
-          .from('products')
-          .select('*', { count: 'exact', head: true });
-        
-        onProductsCountChange(totalCount || 0);
+        setTotal(total);
+        onProductsCountChange(total);
+      }
+
+      // Prefetch de páginas adyacentes para navegación instantánea
+      const prefetch = async (targetPage: number) => {
+        if (targetPage < 1) return;
+        if (pageCacheRef.current[targetPage]) return;
+        const preParams = new URLSearchParams(params);
+        preParams.set('page', String(targetPage));
+        try {
+          const r = await fetch(`/api/public/products?${preParams.toString()}`, { method: 'GET' });
+          if (!r.ok) return;
+          const j = await r.json();
+          const it: Product[] = j.items || [];
+          pageCacheRef.current[targetPage] = it;
+        } catch {}
+      };
+
+      if (apiHasMore) {
+        void prefetch(currentPage + 1);
+      }
+      if (currentPage > 1) {
+        void prefetch(currentPage - 1);
       }
 
     } catch (error) {
@@ -183,13 +165,36 @@ export default function ProductsGrid({ filters, onProductsCountChange }: Product
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [filters, onProductsCountChange, sellerId, excludeProductId, excludeSellerId, pageSize]);
 
-  const loadMore = () => {
-    if (!loadingMore && hasMore) {
-      setPage(prev => prev + 1);
-      loadProducts(false);
+  // Cargar productos al cambiar filtros (reset)
+  useEffect(() => {
+    // Limpiar caché al cambiar filtros para no mezclar resultados
+    pageCacheRef.current = {};
+    loadProducts(true, 1);
+  }, [filters, loadProducts]);
+
+  // Navegación de paginación numérica
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const goToPage = (n: number) => {
+    if (n < 1 || n > totalPages || n === page) return;
+    setPage(n);
+    // Mostrar de inmediato si está en caché y revalidar en background
+    const cached = pageCacheRef.current[n];
+    if (cached) {
+      setProducts(cached);
+      setLoading(false);
     }
+    // Desplazar suavemente al inicio de la sección (compensa navbar fija)
+    if (typeof window !== 'undefined') {
+      const el = sectionTopRef.current;
+      if (el) {
+        const headerOffset = 90; // ajustar si cambia la altura del header fijo
+        const y = el.getBoundingClientRect().top + window.scrollY - headerOffset;
+        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+      }
+    }
+    loadProducts(true, n);
   };
 
   const toggleFavorite = (productId: string) => {
@@ -234,24 +239,34 @@ export default function ProductsGrid({ filters, onProductsCountChange }: Product
   };
 
   const getLocation = (product: Product) => {
-    const profile = product.profiles;
-    if (profile?.city && profile?.province) {
-      return `${profile.city}, ${profile.province}`;
-    }
-    return 'Ubicación no especificada';
+    return product.location || 'Ubicación no especificada';
   };
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <Card key={i} className="overflow-hidden">
-            <Skeleton className="aspect-[4/3] w-full" />
-            <CardContent className="p-4 space-y-3">
+      <div className={cn(
+        variant === "compact"
+          ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4"
+          : variant === "comfortable"
+            ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5"
+            : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6",
+        "items-stretch"
+      )}>
+        {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+          <Card key={i} className="overflow-hidden h-full">
+            <Skeleton className={cn("w-full",
+              variant === "compact" ? "aspect-square" : "aspect-[4/3]"
+            )} />
+            <CardContent className={cn("space-y-3",
+              variant === "compact" ? "p-3" : variant === "comfortable" ? "p-3" : "p-4"
+            ) }>
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
-              <Skeleton className="h-6 w-1/3" />
-              <Skeleton className="h-10 w-full" />
+              {variant !== "compact" && <Skeleton className="h-6 w-1/3" />}
+              <Skeleton className={cn(
+                variant === "compact" ? "h-8" : variant === "comfortable" ? "h-9" : "h-10",
+                "w-full"
+              )} />
             </CardContent>
           </Card>
         ))}
@@ -277,26 +292,34 @@ export default function ProductsGrid({ filters, onProductsCountChange }: Product
   }
 
   return (
-    <div className="space-y-8">
+    <div ref={sectionTopRef} className="space-y-8">
       {/* Grid de productos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className={cn(
+        variant === "compact"
+          ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4"
+          : variant === "comfortable"
+            ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5"
+            : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6",
+        "items-stretch"
+      )}>
         {products.map((product) => (
-          <Card key={product.id} className="group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden">
+          <Card key={product.id} className={cn("group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden h-full flex flex-col", variant === "compact" && "text-sm")}>
             <div className="relative">
               {/* Badges */}
               <div className="absolute top-3 left-3 z-10 flex flex-col gap-2">
-                {isProductFeatured(product) && (
+                {variant !== "compact" && isProductFeatured(product) && (
                   <Badge className="bg-orange-500 hover:bg-orange-600">
                     <Star className="h-3 w-3 mr-1" />
                     Destacado
                   </Badge>
                 )}
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-[10px]">
                   {product.category}
                 </Badge>
               </div>
 
               {/* Botones de acción */}
+              {variant !== "compact" && (
               <div className="absolute top-3 right-3 z-10 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button
                   size="sm"
@@ -317,88 +340,108 @@ export default function ProductsGrid({ filters, onProductsCountChange }: Product
                   className="h-8 w-8 p-0 bg-white/90 hover:bg-white"
                   onClick={() => navigator.share?.({ 
                     title: product.title, 
-                    url: window.location.origin + `/marketplace/product/${product.id}` 
+                    url: window.location.origin + `/products/${product.id}` 
                   })}
                 >
                   <Share2 className="h-4 w-4 text-gray-600" />
                 </Button>
               </div>
+              )}
 
               {/* Imagen */}
-              <div className="aspect-[4/3] overflow-hidden bg-gray-100 flex items-center justify-center">
+              <div className={cn("overflow-hidden bg-gray-100 flex items-center justify-center",
+                variant === "compact" ? "aspect-square" : "aspect-[4/3]"
+              ) }>
                 {product.primaryImageUrl ? (
                   <Image
                     src={product.primaryImageUrl}
                     alt={product.title}
                     width={400}
-                    height={300}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    height={400}
+                    className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300")}
                   />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
                     <div className="text-center text-gray-400">
-                      <Package className="h-12 w-12 mx-auto mb-2" />
-                      <span className="text-sm">Sin imagen</span>
+                      <Package className={cn("mx-auto mb-2",
+                        variant === "compact" ? "h-8 w-8" : variant === "comfortable" ? "h-10 w-10" : "h-12 w-12"
+                      )} />
+                      <span className={cn(
+                        variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"
+                      )}>Sin imagen</span>
                     </div>
                   </div>
                 )}
               </div>
             </div>
             
-            <CardContent className="p-4">
+            <CardContent className={cn(
+              variant === "compact" ? "p-3" : variant === "comfortable" ? "p-3" : "p-4",
+              "flex flex-col flex-1"
+            ) }>
               {/* Título */}
-              <h3 className="font-semibold text-lg mb-2 line-clamp-2 group-hover:text-orange-600 transition-colors">
+              <h3 className={cn("font-semibold mb-2 line-clamp-2 group-hover:text-orange-600 transition-colors",
+                variant === "compact" ? "text-base" : variant === "comfortable" ? "text-base" : "text-lg"
+              ) }>
                 {product.title}
               </h3>
               
-              {/* Descripción */}
-              <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                {product.description}
-              </p>
-              
               {/* Vendedor y ubicación */}
-              <div className="space-y-1 mb-3">
-                <div className="flex items-center text-sm text-gray-500">
+              <div className={cn("space-y-1",
+                variant === "compact" ? "mb-2" : variant === "comfortable" ? "mb-2" : "mb-3"
+              ) }>
+                <div className={cn("flex items-center text-gray-500",
+                  variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"
+                ) }>
                   <User className="h-4 w-4 mr-1" />
                   <span className="truncate">{getSellerName(product)}</span>
                 </div>
-                <div className="flex items-center text-sm text-gray-500">
+                <div className={cn("flex items-center text-gray-500",
+                  variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"
+                ) }>
                   <MapPin className="h-4 w-4 mr-1" />
                   <span className="truncate">{getLocation(product)}</span>
                 </div>
               </div>
               
               {/* Precio y cantidad */}
-              <div className="flex items-center justify-between mb-4">
+              <div className={cn(
+                variant === "compact" ? "mb-3" : variant === "comfortable" ? "mb-3" : "mb-4"
+              ) }>
                 <div>
-                  <span className="text-2xl font-bold text-orange-600">
+                  <span className={cn("font-bold text-orange-600",
+                    variant === "compact" ? "text-xl" : variant === "comfortable" ? "text-xl" : "text-2xl"
+                  ) }>
                     {formatPrice(product.price)}
                   </span>
-                  <span className="text-sm text-gray-500 ml-1">
+                  <span className={cn("text-gray-500 ml-1",
+                    variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"
+                  ) }>
                     / {product.quantity_unit}
                   </span>
                 </div>
-                <span className="text-sm text-gray-600">
-                  {product.quantity_value} {product.quantity_unit} disp.
-                </span>
+                {variant !== "compact" && (
+                  <div className="text-sm text-gray-600 mt-1">
+                    {product.quantity_value} {product.quantity_unit} disp.
+                  </div>
+                )}
               </div>
               
               {/* Fecha de publicación */}
-              <div className="flex items-center text-xs text-gray-400 mb-4">
-                <Clock className="h-3 w-3 mr-1" />
-                Publicado {formatDate(product.created_at)}
-              </div>
+              {variant !== "compact" && (
+                <div className="flex items-center text-xs text-gray-400 mb-4">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Publicado {formatDate(product.created_at)}
+                </div>
+              )}
               
               {/* Botones de acción */}
-              <div className="flex gap-2">
-                <Button asChild className="flex-1 bg-orange-500 hover:bg-orange-600">
-                  <Link href={`/marketplace/product/${product.id}`}>
+              <div className="mt-auto flex gap-2">
+                <Button asChild className="flex-1 bg-orange-500 hover:bg-orange-600" size={variant === "compact" ? "sm" : variant === "comfortable" ? "default" : undefined}>
+                  <Link href={`/products/${product.id}`}>
                     <Eye className="h-4 w-4 mr-2" />
                     Ver Producto
                   </Link>
-                </Button>
-                <Button variant="outline" size="sm" className="px-3">
-                  <Phone className="h-4 w-4" />
                 </Button>
               </div>
             </CardContent>
@@ -406,26 +449,88 @@ export default function ProductsGrid({ filters, onProductsCountChange }: Product
         ))}
       </div>
 
-      {/* Botón cargar más */}
-      {hasMore && (
-        <div className="text-center">
-          <Button
-            onClick={loadMore}
-            disabled={loadingMore}
-            variant="outline"
-            size="lg"
-            className="px-8"
-          >
-            {loadingMore ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500 mr-2"></div>
-                Cargando...
-              </>
-            ) : (
-              'Cargar más productos'
-            )}
-          </Button>
-        </div>
+      {/* Paginación (shadcn) */}
+      {showPagination && totalPages >= 1 && (
+        <Pagination className="mt-4">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                className={cn(page === 1 && "pointer-events-none opacity-50")}
+                onClick={(e) => {
+                  e.preventDefault();
+                  goToPage(page - 1);
+                }}
+              />
+            </PaginationItem>
+
+            {/* Números con elipsis */}
+            {(() => {
+              const items: React.ReactNode[] = [];
+              const pushPage = (p: number) =>
+                items.push(
+                  <PaginationItem key={p}>
+                    <PaginationLink
+                      href="#"
+                      isActive={p === page}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        goToPage(p);
+                      }}
+                    >
+                      {p}
+                    </PaginationLink>
+                  </PaginationItem>
+                );
+
+              // Siempre mostrar página 1
+              pushPage(1);
+
+              // Elipsis después de 1
+              const start = Math.max(2, page - 1);
+              const end = Math.min(totalPages - 1, page + 1);
+              if (start > 2) {
+                items.push(
+                  <PaginationItem key="start-ellipsis">
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                );
+              }
+
+              // Ventana alrededor de la actual
+              for (let p = start; p <= end; p++) {
+                pushPage(p);
+              }
+
+              // Elipsis antes del final
+              if (end < totalPages - 1) {
+                items.push(
+                  <PaginationItem key="end-ellipsis">
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                );
+              }
+
+              // Última página si es mayor a 1
+              if (totalPages > 1) {
+                pushPage(totalPages);
+              }
+
+              return items;
+            })()}
+
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                className={cn(page === totalPages && "pointer-events-none opacity-50")}
+                onClick={(e) => {
+                  e.preventDefault();
+                  goToPage(page + 1);
+                }}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
       )}
     </div>
   );

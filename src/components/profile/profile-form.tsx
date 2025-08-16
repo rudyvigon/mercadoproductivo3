@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { toSpanishErrorMessage } from "@/lib/i18n/errors";
 import { Skeleton } from "@/components/ui/skeleton";
+import Image from "next/image";
+import { buildSafeStoragePath } from "@/lib/images";
 
 function isValidDniCuit(raw: string): boolean {
   const digits = (raw || "").replace(/\D/g, "");
@@ -81,6 +83,12 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       cp: "",
     },
   });
+
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const AVATAR_BUCKET = "avatars";
+  const AVATAR_MAX_MB = 5;
 
   function fieldAttrs<K extends keyof ProfileFormValues>(name: K) {
     const state = form.getFieldState(name as any, form.formState);
@@ -197,7 +205,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       }
       const { data, error } = await supabase
         .from("profiles")
-        .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code")
+        .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url")
         .eq("id", user.id)
         .single();
       if (!mounted) return;
@@ -217,6 +225,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         cp: data?.postal_code ?? "",
       });
       existingPlanCodeRef.current = (data?.plan_code ?? null) as any;
+      setAvatarUrl(data?.avatar_url ?? null);
       // Cargar localidades para la provincia reseteada y preservar la ciudad existente
       const provToLoad = provinceCanonical(data?.province ?? "");
       if (provToLoad) {
@@ -230,6 +239,63 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     })();
     return () => { mounted = false; };
   }, [form, supabase]);
+
+  async function handleAvatarSelected(file: File) {
+    if (!file) return;
+    if (!file.type?.startsWith("image/")) {
+      toast.error("El archivo debe ser una imagen");
+      return;
+    }
+    if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
+      toast.error(`La imagen supera ${AVATAR_MAX_MB}MB`);
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+      const { path } = buildSafeStoragePath({ userId: user.id, file });
+      const { error: upErr } = await supabase.storage.from(AVATAR_BUCKET).upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+      const publicUrl = data?.publicUrl as string | undefined;
+      if (!publicUrl) throw new Error("No se pudo obtener URL pública del avatar");
+      const { error: dbErr } = await supabase
+        .from("profiles")
+        .upsert({ id: (await supabase.auth.getUser()).data.user!.id, avatar_url: publicUrl, updated_at: new Date().toISOString() }, { onConflict: "id" });
+      if (dbErr) throw dbErr;
+      try {
+        await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
+      } catch {}
+      setAvatarUrl(publicUrl);
+      toast.success("Avatar actualizado");
+      try {
+        window.dispatchEvent(new CustomEvent("profile:updated", { detail: { avatar_url: publicUrl } }));
+      } catch {}
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message ?? String(e);
+      if (/bucket.*not.*found/i.test(msg)) {
+        toast.error("Falta el bucket 'avatars' en Supabase Storage. Crea el bucket o ajusta la configuración.");
+      } else if (/row-level security|RLS|permission denied|not authorized/i.test(msg)) {
+        toast.error("Permisos insuficientes para subir avatar (RLS). Revisa políticas en Supabase.");
+      } else {
+        toast.error(toSpanishErrorMessage(e, "No se pudo actualizar el avatar"));
+      }
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  function onAvatarInputChange(e: any) {
+    const f = e?.target?.files?.[0];
+    if (f) handleAvatarSelected(f);
+    if (e?.target) e.target.value = "";
+  }
 
   async function onSubmit(values: ProfileFormValues) {
     setSaving(true);
@@ -341,6 +407,35 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+      <div className="flex items-center gap-4">
+        <div className="relative h-16 w-16 overflow-hidden rounded-full bg-muted sm:h-20 sm:w-20">
+          {avatarUrl ? (
+            <Image src={avatarUrl} alt="Avatar" fill className="object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">Sin avatar</div>
+          )}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={allDisabled || avatarUploading}
+            onClick={() => avatarInputRef.current?.click()}
+            className="w-fit"
+          >
+            {avatarUploading ? "Subiendo..." : "Cambiar avatar"}
+          </Button>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={onAvatarInputChange}
+            disabled={allDisabled || avatarUploading}
+          />
+          <p className="text-xs text-muted-foreground">Formatos soportados: JPG, PNG, WEBP. Máx {AVATAR_MAX_MB}MB.</p>
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label

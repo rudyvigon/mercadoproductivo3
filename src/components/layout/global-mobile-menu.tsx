@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   Menu, LogOut
 } from "lucide-react";
-import { MdHomeWork, MdVerified, MdHome, MdInfo, MdCreditCard, MdShoppingBag, MdPhone } from "react-icons/md";
+import { MdHomeWork, MdVerified, MdHome, MdInfo, MdCreditCard, MdPhone, MdStore } from "react-icons/md";
 import { BsFillPersonFill } from "react-icons/bs";
 import { RiShoppingCart2Fill } from "react-icons/ri";
 import { createClient } from "@/lib/supabase/client";
@@ -19,10 +19,10 @@ import { cn } from "@/lib/utils";
 
 // Items de navegación principal
 const mainNavItems = [
-  { label: "Inicio", href: "/", icon: MdHome },
+  { label: "Marketplace", href: "/", icon: MdHome },
+  { label: "Vendedores", href: "/vendedores", icon: MdStore },
   { label: "Nosotros", href: "/nosotros", icon: MdInfo },
   { label: "Planes", href: "/planes", icon: MdCreditCard },
-  { label: "Marketplace", href: "/marketplace", icon: MdShoppingBag },
   { label: "Contacto", href: "/contacto", icon: MdPhone },
 ];
 
