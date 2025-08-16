@@ -40,12 +40,10 @@ export default function MarketplaceView() {
         setUser(user);
 
         if (user) {
-          // Verificar si el usuario es vendedor usando metadatos
-          const isVendor =
-            user.user_metadata?.role === "anunciante" ||
-            user.user_metadata?.user_type === "seller";
-
-          setIsVendor(isVendor);
+          // Normalizar rol (compat: usar user_type legacy si existe) y evaluar solo contra 'seller'
+          const roleRaw = (user.user_metadata?.role || user.user_metadata?.user_type || "").toString();
+          const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
+          setIsVendor(roleNormalized === "seller");
         }
       } catch (error) {
         console.error("Error loading user:", error);
@@ -199,7 +197,7 @@ export default function MarketplaceView() {
             ¿Tienes productos para vender?
           </h2>
           <p className="text-xl text-orange-100 mb-8">
-            Únete a nuestra comunidad de productores y llega a miles de compradores
+            Únete a nuestra comunidad de vendedores y llega a miles de compradores
           </p>
 
           {/* Verificar si el usuario es vendedor */}

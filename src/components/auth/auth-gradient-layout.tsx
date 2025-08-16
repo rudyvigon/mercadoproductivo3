@@ -31,7 +31,7 @@ export default function AuthGradientLayout({
             Mercado Productivo
           </Link>
           <blockquote className="mt-auto max-w-md text-balance text-lg leading-relaxed text-foreground/80">
-            “La plataforma que conecta productores con compradores de manera sencilla y eficiente.”
+            “La plataforma que conecta vendedores con compradores de manera sencilla y eficiente.”
             <footer className="mt-3 text-sm text-muted-foreground">Equipo de Mercado Productivo</footer>
           </blockquote>
         </div>

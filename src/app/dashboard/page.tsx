@@ -1,8 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { UsageRadial, CountdownUntil } from "@/components/dashboard/kpi-charts";
 
 
@@ -23,6 +22,8 @@ export default async function Page() {
   const firstNameFromMeta = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0];
   const emailVerified = Boolean(user.email_confirmed_at);
   const role = (user.user_metadata?.role || "").toString();
+  // Normalizar rol legacy a estándar
+  const roleNormalized = role === "anunciante" ? "seller" : role;
   // Plan: preferir DB (profiles.plan_code); metadata como fallback
   const metaPlan = (user.user_metadata?.plan || user.user_metadata?.plan_code || "").toString();
   let planRaw = "";
@@ -44,8 +45,8 @@ export default async function Page() {
     enterprise: "Plus",
   };
   let planLabel = planRaw ? (planMap[planRaw.toLowerCase()] ?? (planRaw.charAt(0).toUpperCase() + planRaw.slice(1))) : "—";
-  if (planLabel === "—" && role === "anunciante") {
-    // Fallback visual: si es anunciante pero aún no tiene plan_code, mostrar Básico
+  if (planLabel === "—" && roleNormalized === "seller") {
+    // Fallback visual: si es vendedor pero aún no tiene plan_code, mostrar Básico
     planLabel = "Básico";
   }
 
@@ -213,55 +214,7 @@ export default async function Page() {
 
         
 
-        {missingLabels.length > 0 && (
-          <Card id="profile-requirements-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Información requerida para publicar</CardTitle>
-              <CardDescription>Debes completar estos campos antes de publicar productos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc space-y-2 pl-4 text-xs sm:pl-5 sm:text-sm">
-                <li className="flex items-center justify-between">
-                  <span>Nombre</span>
-                  <Badge variant={p_first.trim() ? "default" : "secondary"}>{p_first.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Apellido</span>
-                  <Badge variant={p_last.trim() ? "default" : "secondary"}>{p_last.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Email</span>
-                  <Badge variant={p_email.trim() ? "default" : "secondary"}>{p_email.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>DNI o CUIT</span>
-                  <Badge variant={p_dni_cuit.trim() ? "default" : "secondary"}>{p_dni_cuit.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Dirección</span>
-                  <Badge variant={p_address.trim() ? "default" : "secondary"}>{p_address.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Localidad</span>
-                  <Badge variant={p_city.trim() ? "default" : "secondary"}>{p_city.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Provincia</span>
-                  <Badge variant={p_province.trim() ? "default" : "secondary"}>{p_province.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Código Postal</span>
-                  <Badge variant={p_cp.trim() ? "default" : "secondary"}>{p_cp.trim() ? "Completo" : "Pendiente"}</Badge>
-                </li>
-              </ul>
-            </CardContent>
-            <CardFooter>
-              <Button asChild>
-                <a href="/dashboard/profile#profile-form-card">Completar tu información</a>
-              </Button>
-            </CardFooter>
-          </Card>
-        )}
+        {/* Tarjeta de "Información requerida para publicar" eliminada: ahora se maneja con modal y redirección a /dashboard/profile */}
 
         {/* El formulario de perfil se movió a /dashboard/profile para mantener el dashboard limpio */}
       </section>

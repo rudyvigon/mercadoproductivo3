@@ -65,6 +65,10 @@ export default function RegisterForm() {
             user_type: values.userType,
             first_name: values.firstName,
             last_name: values.lastName,
+            // Si es vendedor, asignar plan básico por defecto
+            ...(values.userType === "seller"
+              ? { plan_code: "free", plan: "free" }
+              : {}),
           },
           emailRedirectTo:
             typeof window !== "undefined"
@@ -167,7 +171,7 @@ export default function RegisterForm() {
                 : "border-[var(--border-light)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
             }`}
           >
-            <Store size={16}/> Productor
+            <Store size={16}/> Vendedor
           </button>
         </div>
         {form.formState.errors.userType && (

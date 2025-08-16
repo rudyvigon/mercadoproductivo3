@@ -8,7 +8,7 @@ import GlobalMobileMenu from "@/components/layout/global-mobile-menu";
 
 export const metadata: Metadata = {
   title: "Mercado Productivo",
-  description: "Plataforma que conecta productores con compradores",
+  description: "Plataforma que conecta vendedores con compradores",
 };
 
 const inter = Inter({ subsets: ["latin"] });

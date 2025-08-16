@@ -316,9 +316,10 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         postal_code: values.cp,
         updated_at: new Date().toISOString(),
       };
-      // Si es anunciante y aún no tiene plan_code, asignar 'free' por defecto
-      const role = (user.user_metadata as any)?.role as string | undefined;
-      if (role === "anunciante" && !existingPlanCodeRef.current) {
+      // Si es vendedor (normalizado) y aún no tiene plan_code, asignar 'free' por defecto
+      const roleRaw = (((user.user_metadata as any)?.role) || ((user.user_metadata as any)?.user_type) || "") as string;
+      const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
+      if (roleNormalized === "seller" && !existingPlanCodeRef.current) {
         payload.plan_code = "free";
       }
       const { error } = await supabase
@@ -507,7 +508,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
             htmlFor="dni_cuit"
             className={form.getFieldState("dni_cuit", form.formState).error ? "text-red-600" : undefined}
           >
-            DNI o CUIT <span className="text-red-600">*</span>
+            DNI o CUIT (Empresa) <span className="text-red-600">*</span>
           </Label>
           <Input
             id="dni_cuit"
@@ -524,7 +525,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
           )}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="company">Empresa (opcional)</Label>
+          <Label htmlFor="company">Empresa (Se mostrará en los productos y perfil)</Label>
           <Input id="company" {...form.register("company")} {...fieldAttrs("company")} disabled={allDisabled} />
         </div>
       </div>
@@ -632,7 +633,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
             htmlFor="cp"
             className={form.getFieldState("cp", form.formState).error ? "text-red-600" : undefined}
           >
-            CP <span className="text-red-600">*</span>
+            Código Postal <span className="text-red-600">*</span>
           </Label>
           <Input
             id="cp"

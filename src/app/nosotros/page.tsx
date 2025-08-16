@@ -10,7 +10,7 @@ export default function NosotrosPage() {
     <main className="mx-auto max-w-5xl px-4 py-10">
       <h1 className="text-3xl font-bold tracking-tight">Nosotros</h1>
       <p className="mt-3 text-muted-foreground">
-        Conectamos productores y compradores B2B agroindustriales, facilitando contactos directos y sin comisiones.
+        Conectamos vendedores y compradores B2B agroindustriales, facilitando contactos directos y sin comisiones.
       </p>
       <section className="mt-8 space-y-4">
         <h2 className="text-xl font-semibold">Nuestra misión</h2>

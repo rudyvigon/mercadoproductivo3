@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 const bannerSlides = [
   {
     id: 1,
-    title: "Conectamos Productores y Compradores",
+    title: "Conectamos Vendedores y Compradores",
     subtitle: "La plataforma líder del sector agroindustrial",
     description: "Descubre productos frescos directamente del campo a tu mesa",
     cta: "Explorar Productos",
@@ -27,7 +27,7 @@ const bannerSlides = [
   {
     id: 3,
     title: "Únete a Nuestra Comunidad",
-    subtitle: "Más de 1000 productores confían en nosotros",
+    subtitle: "Más de 1000 vendedores confían en nosotros",
     description: "Forma parte del marketplace agroindustrial más grande",
     cta: "Registrarse",
     ctaLink: "/auth/register"

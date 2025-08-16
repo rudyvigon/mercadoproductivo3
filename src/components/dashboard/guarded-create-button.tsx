@@ -1,6 +1,6 @@
 "use client";
-import { useState, useCallback } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -21,24 +21,6 @@ interface GuardedCreateButtonProps extends React.ButtonHTMLAttributes<HTMLButton
 export function GuardedCreateButton({ href, missingLabels, className, children, ...props }: GuardedCreateButtonProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
-  const pathname = usePathname();
-
-  const scrollToCard = useCallback(() => {
-    const doScroll = () => {
-      const el = document.getElementById("profile-requirements-card");
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("ring-2", "ring-orange-500");
-        setTimeout(() => el.classList.remove("ring-2", "ring-orange-500"), 1500);
-      }
-    };
-    if (pathname !== "/dashboard") {
-      router.push("/dashboard");
-      setTimeout(doScroll, 400);
-    } else {
-      doScroll();
-    }
-  }, [pathname, router]);
 
   const onClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -72,7 +54,9 @@ export function GuardedCreateButton({ href, missingLabels, className, children, 
             <AlertDialogAction
               onClick={() => {
                 setOpen(false);
-                scrollToCard();
+                // Redirigir a la página de perfil (alias en español) con parámetro `next` para volver al flujo original
+                const next = encodeURIComponent(href);
+                router.push(`/dashboard/perfil?next=${next}`);
               }}
             >
               Completar tu información

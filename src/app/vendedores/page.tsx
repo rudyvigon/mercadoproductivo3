@@ -58,7 +58,7 @@ export default async function VendedoresPage({
         <div className="text-center mb-10 sm:mb-12">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Vendedores</h1>
           <div className="w-24 h-1 bg-orange-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Conoce a los productores y empresas que ofrecen sus productos en el Marketplace.</p>
+          <p className="text-gray-600">Conoce a los vendedores y empresas que ofrecen sus productos en el Marketplace.</p>
         </div>
 
         {/* Grid 4x5 en escritorio (20 por página) */}

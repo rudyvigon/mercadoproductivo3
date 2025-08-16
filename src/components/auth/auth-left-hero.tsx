@@ -19,7 +19,7 @@ export function AuthLeftHero() {
               <h1 className="text-4xl md:text-5xl xl:text-6xl font-bold leading-tight text-white">
                 Conecta directamente con
                 <br />
-                <span className="bg-gradient-to-r from-orange-300 to-amber-200 bg-clip-text text-transparent">productores confiables</span>
+                <span className="bg-gradient-to-r from-orange-300 to-amber-200 bg-clip-text text-transparent">vendedores confiables</span>
               </h1>
               <p className="text-lg text-blue-100 max-w-md">
                 La plataforma B2B que elimina intermediarios y reduce costos operativos
@@ -28,7 +28,7 @@ export function AuthLeftHero() {
             <div className="grid grid-cols-1 gap-3 max-w-sm text-left">
               <div className="flex items-center gap-3 text-blue-100">
                 <span className="inline-block w-2 h-2 bg-orange-300 rounded-full" />
-                <span>Acceso directo a productores verificados</span>
+                <span>Acceso directo a vendedores verificados</span>
               </div>
               <div className="flex items-center gap-3 text-blue-100">
                 <span className="inline-block w-2 h-2 bg-orange-300 rounded-full" />
