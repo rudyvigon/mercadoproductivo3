@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Star, MapPin, Eye, Heart, Share2, 
-  Package, Clock, User, Phone 
+  Package, Clock, User, Phone,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProductFilters } from "./product-filters";
@@ -19,8 +20,6 @@ import {
   PaginationContent,
   PaginationItem,
   PaginationLink,
-  PaginationPrevious,
-  PaginationNext,
   PaginationEllipsis,
 } from "@/components/ui/pagination";
 
@@ -452,16 +451,20 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
       {/* Paginación (shadcn) */}
       {showPagination && totalPages >= 1 && (
         <Pagination className="mt-4">
-          <PaginationContent>
+          <PaginationContent className="bg-white border rounded-full p-1 shadow-sm">
             <PaginationItem>
-              <PaginationPrevious
+              <PaginationLink
                 href="#"
-                className={cn(page === 1 && "pointer-events-none opacity-50")}
+                className={cn(page === 1 ? "pointer-events-none opacity-50" : "gap-1 pl-2.5 pr-3 rounded-full")}
                 onClick={(e) => {
                   e.preventDefault();
                   goToPage(page - 1);
                 }}
-              />
+                size="default"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Anterior
+              </PaginationLink>
             </PaginationItem>
 
             {/* Números con elipsis */}
@@ -473,6 +476,8 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
                     <PaginationLink
                       href="#"
                       isActive={p === page}
+                      size="icon"
+                      className={p === page ? "bg-orange-500 text-white hover:bg-orange-600 border-orange-500" : ""}
                       onClick={(e) => {
                         e.preventDefault();
                         goToPage(p);
@@ -520,14 +525,18 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
             })()}
 
             <PaginationItem>
-              <PaginationNext
+              <PaginationLink
                 href="#"
-                className={cn(page === totalPages && "pointer-events-none opacity-50")}
+                className={cn(page === totalPages ? "pointer-events-none opacity-50" : "gap-1 pr-2.5 pl-3 rounded-full")}
                 onClick={(e) => {
                   e.preventDefault();
                   goToPage(page + 1);
                 }}
-              />
+                size="default"
+              >
+                Siguiente
+                <ChevronRight className="h-4 w-4" />
+              </PaginationLink>
             </PaginationItem>
           </PaginationContent>
         </Pagination>

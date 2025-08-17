@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UsageRadial, CountdownUntil } from "@/components/dashboard/kpi-charts";
+import PlanBadge from "@/components/badges/plan-badge";
 
 
 export const dynamic = "force-dynamic";
@@ -39,10 +40,12 @@ export default async function Page() {
   const planMap: Record<string, string> = {
     free: "Básico",
     basic: "Básico",
-    premium: "Premium",
-    pro: "Premium",
     plus: "Plus",
     enterprise: "Plus",
+    deluxe: "Deluxe",
+    diamond: "Deluxe",
+    premium: "Plus",
+    pro: "Plus",
   };
   let planLabel = planRaw ? (planMap[planRaw.toLowerCase()] ?? (planRaw.charAt(0).toUpperCase() + planRaw.slice(1))) : "—";
   if (planLabel === "—" && roleNormalized === "seller") {
@@ -93,6 +96,10 @@ export default async function Page() {
   if (plan?.name) {
     planLabel = plan.name;
   }
+
+  const planCodeLower = (planCode || "").toLowerCase();
+  const labelLower = (planLabel || "").toLowerCase();
+  const isBasicPlan = /b[áa]sico/.test(labelLower) || ["free", "basic"].includes(planCodeLower);
 
   const now = new Date();
   const periodYM = now.getFullYear() * 100 + (now.getMonth() + 1); // YYYYMM
@@ -149,7 +156,7 @@ export default async function Page() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Plan</span>
-              <span className="font-medium">{planLabel}</span>
+              <span className="font-medium"><PlanBadge planLabel={planLabel} planCode={planCode} /></span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Verificación</span>
@@ -181,32 +188,37 @@ export default async function Page() {
                 />
               </div>
               <div className="rounded-md border p-4">
-                <UsageRadial
-                  label="Créditos (mes)"
-                  value={creditsUsed}
-                  max={creditsMonthly || null}
-                  color="#f06d04"
-                  layout="stacked"
-                  size={148}
-                  barSize={14}
-                  showCenter={false}
-                />
+                {isBasicPlan || !creditsMonthly ? (
+                  <div className="h-[148px] flex items-center justify-center text-muted-foreground text-center">
+                    Créditos no disponibles en Plan Básico
+                  </div>
+                ) : (
+                  <UsageRadial
+                    label="Créditos (mes)"
+                    value={creditsUsed}
+                    max={creditsMonthly || null}
+                    color="#f06d04"
+                    layout="stacked"
+                    size={148}
+                    barSize={14}
+                    showCenter={false}
+                  />
+                )}
               </div>
-              <div className="rounded-md border p-4">
-                {/* Tarjeta de Ofertas removida */}
-              </div>
-              <div className="rounded-md border p-4">
-                <CountdownUntil
-                  label="Expira en"
-                  startISO={activatedAt as any}
-                  targetISO={expiresAt}
-                  color="#10b981"
-                  layout="stacked"
-                  size={148}
-                  barSize={14}
-                  showCenter={false}
-                />
-              </div>
+              {!isBasicPlan && activatedAt && expiresAt && (
+                <div className="rounded-md border p-4">
+                  <CountdownUntil
+                    label="Expira en"
+                    startISO={activatedAt as any}
+                    targetISO={expiresAt}
+                    color="#10b981"
+                    layout="stacked"
+                    size={148}
+                    barSize={14}
+                    showCenter={false}
+                  />
+                </div>
+              )}
             </div>
             {/* Gráfico de líneas removido */}
           </CardContent>

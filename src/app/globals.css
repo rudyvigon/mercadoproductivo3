@@ -82,3 +82,20 @@ body,
 }
 
 /* (migrado a CSS Module en `components/ui/background-gradient.module.css`) */
+
+/* Utilidad para animar gradientes horizontales */
+@keyframes gradient-x {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@layer utilities {
+  .animate-gradient-x {
+    background-size: 200% 200%;
+    animation: gradient-x 7s ease-in-out infinite;
+  }
+}

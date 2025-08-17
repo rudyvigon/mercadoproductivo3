@@ -27,6 +27,7 @@ export default function MarketplaceView() {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [isVendor, setIsVendor] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const supabase = createClient();
 
@@ -52,6 +53,25 @@ export default function MarketplaceView() {
 
     loadUser();
   }, [supabase]);
+
+  // Detectar mobile para ajustar pageSize de ProductsGrid
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    if (mq.addEventListener) {
+      mq.addEventListener('change', update);
+      return () => mq.removeEventListener('change', update);
+    } else {
+      // @ts-ignore
+      mq.addListener(update);
+      return () => {
+        // @ts-ignore
+        mq.removeListener(update);
+      };
+    }
+  }, []);
 
   // Cargar datos iniciales para filtros
   useEffect(() => {
@@ -185,7 +205,7 @@ export default function MarketplaceView() {
             filters={filters}
             onProductsCountChange={handleProductsCountChange}
             variant="comfortable"
-            pageSize={20}
+            pageSize={isMobile ? 10 : 20}
           />
         </div>
       </section>

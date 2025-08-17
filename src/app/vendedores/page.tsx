@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { headers } from "next/headers";
+import type React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Award, Package, CalendarDays } from "lucide-react";
+import { Package, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import PlanBadge from "@/components/badges/plan-badge";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 
 const PAGE_SIZE = 20; // 4 x 5
 
@@ -79,10 +87,7 @@ export default async function VendedoresPage({
                       {seller.name}
                     </h3>
                     <div className="flex items-center gap-2 mt-1 text-sm">
-                      <Badge className="bg-orange-500 hover:bg-orange-600">
-                        <Award className="h-3.5 w-3.5 mr-1" />
-                        {seller.plan_label}
-                      </Badge>
+                      <PlanBadge planLabel={seller.plan_label} planCode={seller.plan_code} />
                     </div>
                   </div>
                 </div>
@@ -114,26 +119,88 @@ export default async function VendedoresPage({
             </Card>
           ))}
         </div>
+        
+        {/* Paginación (shadcn) */}
+        {totalPages >= 1 && (
+          <Pagination className="mt-16 sm:mt-20 lg:mt-24">
+            <PaginationContent className="bg-white border rounded-full p-1 shadow-sm">
+              <PaginationItem>
+                <PaginationLink
+                  href={hasPrev ? `/vendedores?page=${page - 1}` : "#"}
+                  className={!hasPrev ? "pointer-events-none opacity-50" : "gap-1 pl-2.5 pr-3 rounded-full"}
+                  size="default"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </PaginationLink>
+              </PaginationItem>
 
-        {/* Estado vacío */}
-        {sellers.length === 0 && (
-          <div className="text-center py-16 text-gray-600">No se encontraron vendedores.</div>
+              {/* Números con elipsis */}
+              {(() => {
+                const items: React.ReactNode[] = [];
+                const pushPage = (p: number) =>
+                  items.push(
+                    <PaginationItem key={p}>
+                      <PaginationLink
+                        href={`/vendedores?page=${p}`}
+                        isActive={p === page}
+                        size="icon"
+                        className={p === page ? "bg-orange-500 text-white hover:bg-orange-600 border-orange-500" : ""}
+                      >
+                        {p}
+                      </PaginationLink>
+                    </PaginationItem>
+                  );
+
+                // Siempre mostrar página 1
+                pushPage(1);
+
+                // Elipsis después de 1
+                const start = Math.max(2, page - 1);
+                const end = Math.min(totalPages - 1, page + 1);
+                if (start > 2) {
+                  items.push(
+                    <PaginationItem key="start-ellipsis">
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  );
+                }
+
+                // Ventana alrededor de la actual
+                for (let p = start; p <= end; p++) {
+                  pushPage(p);
+                }
+
+                // Elipsis antes del final
+                if (end < totalPages - 1) {
+                  items.push(
+                    <PaginationItem key="end-ellipsis">
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  );
+                }
+
+                // Última página si es mayor a 1
+                if (totalPages > 1) {
+                  pushPage(totalPages);
+                }
+
+                return items;
+              })()}
+
+              <PaginationItem>
+                <PaginationLink
+                  href={hasNext ? `/vendedores?page=${page + 1}` : "#"}
+                  className={!hasNext ? "pointer-events-none opacity-50" : "gap-1 pr-2.5 pl-3 rounded-full"}
+                  size="default"
+                >
+                  Siguiente
+                  <ChevronRight className="h-4 w-4" />
+                </PaginationLink>
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         )}
-
-        {/* Paginación */}
-        <div className="flex items-center justify-center gap-3 mt-10">
-          {hasPrev ? (
-            <Link href={`/vendedores?page=${page - 1}`} className="px-4 py-2 rounded-md border text-sm hover:bg-muted">Anterior</Link>
-          ) : (
-            <span className="px-4 py-2 rounded-md border text-sm opacity-50 cursor-not-allowed">Anterior</span>
-          )}
-          <span className="text-sm text-gray-500">Página {page} de {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
-          {hasNext ? (
-            <Link href={`/vendedores?page=${page + 1}`} className="px-4 py-2 rounded-md border text-sm hover:bg-muted">Siguiente</Link>
-          ) : (
-            <span className="px-4 py-2 rounded-md border text-sm opacity-50 cursor-not-allowed">Siguiente</span>
-          )}
-        </div>
       </div>
     </div>
   );

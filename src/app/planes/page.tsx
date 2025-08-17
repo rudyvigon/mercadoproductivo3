@@ -160,7 +160,7 @@ export default async function PlanesPage() {
           const { monthly, yearly, currency } = computePrice(p);
           const monthlyFmt = monthly != null ? formatCurrency(monthly, currency) : null;
           const yearlyFmt = yearly != null ? formatCurrency(yearly, currency) : null;
-          const isPopular = code === "premium" || code === "pro"; // Heurística simple si no hay flag en BD
+          const isPopular = code === "plus" || /plus/i.test(label); // Heurística simple si no hay flag en BD
           const isFirst = idx === 0;
           const isSecond = idx === 1;
           const isThird = idx === 2;

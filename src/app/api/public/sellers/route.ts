@@ -29,6 +29,14 @@ export async function GET(req: Request) {
 
     const supabase = createAdminClient();
 
+    // Cargar nombres de planes desde base para mapear plan_code -> name
+    const { data: planRows } = await supabase
+      .from("plans")
+      .select("code, name");
+    const planNameByCode = new Map(
+      (planRows || []).map((p: any) => [String(p?.code || "").toLowerCase(), p?.name || null])
+    );
+
     const selectColumns = [
       "seller_id",
       "first_name",
@@ -59,12 +67,14 @@ export async function GET(req: Request) {
 
     const items = (data || []).map((row: any) => {
       const name = (row.company || row.full_name || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Vendedor").toString();
+      const codeLower = String(row.plan_code || "").toLowerCase();
+      const planName = planNameByCode.get(codeLower) || null;
       return {
         id: row.seller_id,
         name,
         avatar_url: row.avatar_url ?? null,
         plan_code: row.plan_code ?? null,
-        plan_label: planCodeToLabel(row.plan_code),
+        plan_label: planName || planCodeToLabel(row.plan_code),
         joined_at: row.joined_at,
         products_count: row.products_count ?? 0,
         city: row.city ?? null,

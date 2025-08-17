@@ -25,6 +25,7 @@ interface FeaturedProduct {
 export default function FeaturedProductsCarousel() {
   const [products, setProducts] = useState<FeaturedProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
 
   const supabase = createClient();
 
@@ -73,6 +74,26 @@ export default function FeaturedProductsCarousel() {
 
     fetchFeaturedProducts();
   }, [supabase]);
+
+  // Detectar modo mobile para habilitar drag nativo y desactivar marquee
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    // Compatibilidad con Safari
+    if (mq.addEventListener) {
+      mq.addEventListener('change', update);
+      return () => mq.removeEventListener('change', update);
+    } else {
+      // @ts-ignore
+      mq.addListener(update);
+      return () => {
+        // @ts-ignore
+        mq.removeListener(update);
+      };
+    }
+  }, []);
 
   // Duplicamos el arreglo para loop infinito sin saltos
   const loopProducts = useMemo(() => products.length > 0 ? [...products, ...products] : [], [products]);
@@ -138,12 +159,15 @@ export default function FeaturedProductsCarousel() {
           <div className="w-24 h-1 bg-orange-500 mx-auto" />
         </div>
 
-        {/* Carrusel una sola fila (auto-scroll R->L, loop infinito) */}
+        {/* Carrusel una sola fila: en mobile drag nativo con snap; en desktop marquee infinito */}
         <div className="relative">
-          <div className="overflow-x-hidden overflow-y-visible py-1">
-            <div className="flex items-stretch whitespace-nowrap" style={{ animation: loopProducts.length ? "marquee 40s linear infinite" as any : undefined }}>
+          <div className={`${isMobile ? "overflow-x-auto touch-auto snap-x snap-mandatory -mx-4 px-4" : "overflow-x-hidden"} overflow-y-visible py-1`}>
+            <div
+              className={`flex items-stretch whitespace-nowrap ${isMobile ? "gap-0" : ""}`}
+              style={isMobile ? undefined : (loopProducts.length ? { animation: "marquee 40s linear infinite" as any } : undefined)}
+            >
               {loopProducts.map((product, idx) => (
-                <div key={`${product.id}-${idx}`} className="px-3 shrink-0 w-[280px] sm:w-[300px]">
+                <div key={`${product.id}-${idx}`} className={`px-3 shrink-0 w-[280px] sm:w-[300px] ${isMobile ? "snap-start" : ""}`}>
                   <Card className="group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden">
                     <div className="relative">
                       {/* Badge destacado */}

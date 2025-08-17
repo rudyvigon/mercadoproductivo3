@@ -3,18 +3,12 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Award, Package, CalendarDays, ArrowLeft } from "lucide-react";
+import { Package, CalendarDays, ArrowLeft } from "lucide-react";
 import SellerProducts from "@/components/sellers/seller-products";
 import { SiGooglemaps } from "react-icons/si";
+import PlanBadge from "@/components/badges/plan-badge";
 
-function planCodeToLabel(code?: string | null) {
-  const c = String(code || "").toLowerCase();
-  if (c === "free" || c === "basic") return "Básico";
-  if (c === "plus" || c === "enterprise") return "Plus";
-  if (c === "premium" || c === "pro") return "Premium";
-  return "Básico";
-}
+
 
 function sellerDisplayName(row: any) {
   return (row?.company || row?.full_name || `${row?.first_name ?? ""} ${row?.last_name ?? ""}`.trim() || "Vendedor").toString();
@@ -62,10 +56,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
               <div className="min-w-0 flex-1">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">{sellerDisplayName(profile)}</h1>
                 <div className="mt-2 flex items-center gap-2">
-                  <Badge className="bg-orange-500 hover:bg-orange-600">
-                    <Award className="h-3.5 w-3.5 mr-1" />
-                    {planCodeToLabel(profile.plan_code)}
-                  </Badge>
+                  <PlanBadge planLabel={profile.plan_label} planCode={profile.plan_code} />
                 </div>
               </div>
             </div>
@@ -93,12 +84,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
                 </div>
               </div>
             </div>
-
-            <div className="mt-8">
-              <Link href="/" className="inline-block text-sm rounded-md px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-100">
-                Ver productos del marketplace
-              </Link>
-            </div>
+            
           </CardContent>
         </Card>
 

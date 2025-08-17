@@ -1,12 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { UsageLineChart } from "@/components/dashboard/usage-charts";
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { headers } from "next/headers";
+import PlanBadge from "@/components/badges/plan-badge";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,6 +93,7 @@ export default async function PlanPage() {
 
   const maxProducts = plan?.max_products ?? null;
   const creditsMonthly = plan?.credits_monthly ?? 0;
+  const maxImagesPerProduct = plan?.max_images_per_product ?? null;
 
   // Activación y expiración (1 mes desde activación)
   // Fallback temporal: si no existe plan_activated_at, usamos updated_at cuando hay plan
@@ -109,12 +109,32 @@ export default async function PlanPage() {
   const planMap: Record<string, string> = {
     free: "Básico",
     basic: "Básico",
-    premium: "Premium",
-    pro: "Premium",
     plus: "Plus",
     enterprise: "Plus",
+    deluxe: "Deluxe",
+    diamond: "Deluxe",
+    premium: "Plus",
+    pro: "Plus",
   };
   const planLabel = plan ? (planMap[plan.code.toLowerCase()] ?? plan.name ?? plan.code) : (planCode ? (planMap[planCode.toLowerCase()] ?? planCode) : "Sin plan");
+
+  // Flags y estados derivados
+  const lc = (planCode || plan?.code || "").toLowerCase();
+  const isBasicPlan = lc === "free" || lc === "basic" || (planLabel || "").toLowerCase().includes("básico");
+  const isPlusOrDeluxe = ["plus", "enterprise", "deluxe"].includes(lc) || /(plus|deluxe)/i.test(planLabel || "");
+  const renewsAt = (profile as any)?.plan_renews_at ?? null;
+  const mpStatus = (profile as any)?.mp_subscription_status ?? null as string | null;
+  const mpStatusLabel = mpStatus
+    ? ({ authorized: "Autorizada", pending: "Pendiente", paused: "Pausada", cancelled: "Cancelada" } as Record<string, string>)[mpStatus] ?? mpStatus
+    : "—";
+
+  // Rol: normalizar a buyer/seller usando metadata con fallback a profile.role_code
+  const roleMeta = (user.user_metadata?.role || (user.user_metadata as any)?.user_type || "").toString();
+  const roleFromProfile = (profile?.role_code || "").toString();
+  const roleRaw = roleMeta || roleFromProfile;
+  const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
+  const isSeller = roleNormalized === "seller" || !!planCode || (productsCount ?? 0) > 0;
+  const roleLabel = isSeller ? "Vendedor" : "Comprador";
 
   // Cargar planes disponibles (para cambiar/contratar)
   const h = headers();
@@ -149,14 +169,14 @@ export default async function PlanPage() {
               <CardTitle className="text-lg">Plan actual</CardTitle>
               <CardDescription>Detalles y consumo</CardDescription>
             </div>
-            <Badge variant="default">{planLabel}</Badge>
+            <PlanBadge planLabel={planLabel} planCode={planCode} />
           </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-md border p-4">
               <div className="text-muted-foreground">Rol</div>
-              <div className="font-medium capitalize">{roleCode || "—"}</div>
+              <div className="font-medium">{roleLabel}</div>
             </div>
             <div className="rounded-md border p-4">
               <div className="text-muted-foreground">Productos</div>
@@ -165,21 +185,45 @@ export default async function PlanPage() {
               </div>
             </div>
             <div className="rounded-md border p-4">
+              <div className="text-muted-foreground">Imágenes por producto</div>
+              <div className="font-medium">{maxImagesPerProduct ?? "—"}</div>
+            </div>
+            <div className="rounded-md border p-4">
               <div className="text-muted-foreground">Créditos usados (mes)</div>
-              <div className="font-medium">{creditsUsed}{creditsMonthly ? ` / ${creditsMonthly}` : ""}</div>
+              {isBasicPlan || !creditsMonthly ? (
+                <div className="font-medium text-muted-foreground">Créditos no disponibles en Plan Básico</div>
+              ) : (
+                <div className="font-medium">{creditsUsed}{creditsMonthly ? ` / ${creditsMonthly}` : ""}</div>
+              )}
             </div>
             {/* Tarjeta de ofertas removida */}
-            <div className="rounded-md border p-4">
-              <div className="text-muted-foreground">Activación</div>
-              <div className="font-medium">{formatDate(activatedAt)}</div>
-            </div>
-            <div className="rounded-md border p-4">
-              <div className="text-muted-foreground">Expira</div>
-              <div className="font-medium">{formatDate(expiresAt)}</div>
-            </div>
+            {isPlusOrDeluxe && (
+              <>
+                <div className="rounded-md border p-4">
+                  <div className="text-muted-foreground">Activación</div>
+                  <div className="font-medium">{formatDate(activatedAt)}</div>
+                </div>
+                <div className="rounded-md border p-4">
+                  <div className="text-muted-foreground">Expira</div>
+                  <div className="font-medium">{formatDate(expiresAt)}</div>
+                </div>
+              </>
+            )}
+            {isPlusOrDeluxe && (
+              <>
+                <div className="rounded-md border p-4">
+                  <div className="text-muted-foreground">Suscripción</div>
+                  <div className="font-medium">{mpStatusLabel}</div>
+                </div>
+                <div className="rounded-md border p-4">
+                  <div className="text-muted-foreground">Renueva</div>
+                  <div className="font-medium">{mpStatus === "authorized" ? formatDate(renewsAt) : "—"}</div>
+                </div>
+              </>
+            )}
           </div>
 
-          {!activatedAt && (
+          {isPlusOrDeluxe && !activatedAt && (
             <p className="text-xs text-muted-foreground">
               Para calcular la expiración, se recomienda guardar la fecha de activación en <code>profiles.plan_activated_at</code> cuando se asigne o cambie el plan.
             </p>

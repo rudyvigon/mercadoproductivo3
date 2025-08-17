@@ -64,7 +64,16 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       const last = (row.last_name || "").trim();
       const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
       const location = row.city && row.province ? `${row.city}, ${row.province}` : null;
-      const plan_label = planCodeToLabel(row.plan_code);
+      const plan_code = row.plan_code ?? null;
+      let plan_label = planCodeToLabel(plan_code);
+      if (plan_code) {
+        const { data: planRow } = await supabase
+          .from("plans")
+          .select("name")
+          .ilike("code", plan_code)
+          .single();
+        if (planRow?.name) plan_label = planRow.name;
+      }
 
       return NextResponse.json(
         {
@@ -126,7 +135,16 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     const last = (row.last_name || "").trim();
     const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
     const location = row.city && row.province ? `${row.city}, ${row.province}` : null;
-    const plan_label = planCodeToLabel(row.plan_code);
+    const plan_code = row.plan_code ?? null;
+    let plan_label = planCodeToLabel(plan_code);
+    if (plan_code) {
+      const { data: planRow } = await supabase
+        .from("plans")
+        .select("name")
+        .ilike("code", plan_code)
+        .single();
+      if (planRow?.name) plan_label = planRow.name;
+    }
     const created_at = row.plan_activated_at ?? row.updated_at ?? null;
 
     // Conteo de productos
