@@ -23,10 +23,11 @@ export default function FailurePage({ searchParams }: Props) {
         <CardHeader>
           <CardTitle>Error en la suscripción</CardTitle>
           <CardDescription>
-            Ocurrió un problema: {message}
+            {error !== "PLAN_CHANGE_ALREADY_SCHEDULED" && (
+              <>Ocurrió un problema: {message}</>
+            )}
             {error === "PLAN_CHANGE_ALREADY_SCHEDULED" && (
               <>
-                {" "}
                 {pending && effectiveAt ? (
                   <>
                     Ya tienes un cambio pendiente al plan <b>{pending}</b> programado para {new Date(effectiveAt).toLocaleDateString("es-AR", { year: "numeric", month: "long", day: "numeric" })}.

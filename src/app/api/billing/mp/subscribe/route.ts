@@ -77,7 +77,9 @@ export async function POST(req: Request) {
     const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 
     // Evitar reprocesar si el usuario ya tiene un cambio programado vigente (una vez por ciclo)
-    if (profile?.plan_pending_code && profile?.plan_pending_effective_at) {
+    // Bypass temporal para pruebas: si NODE_ENV !== 'production' o BILLING_BYPASS_PENDING_CHECK === 'true'
+    const bypassPendingCheck = process.env.BILLING_BYPASS_PENDING_CHECK === "true" || process.env.NODE_ENV !== "production";
+    if (!bypassPendingCheck && profile?.plan_pending_code && profile?.plan_pending_effective_at) {
       const pendingEff = new Date(profile.plan_pending_effective_at);
       const nowCheck = new Date();
       if (!Number.isNaN(pendingEff.getTime()) && pendingEff > nowCheck) {

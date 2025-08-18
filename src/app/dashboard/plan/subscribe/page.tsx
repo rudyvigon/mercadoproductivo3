@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,6 +53,9 @@ export default async function SubscribePage({ searchParams }: Props) {
     }
     redirect("/dashboard/plan/success");
   } catch (e: any) {
-    redirect(`/dashboard/plan/failure?error=${encodeURIComponent(e?.message || "NETWORK_ERROR")}`);
+    // No capturar los redirects internos de Next.js
+    if (isRedirectError(e)) throw e;
+    const msg = typeof e?.message === "string" ? e.message : "NETWORK_ERROR";
+    redirect(`/dashboard/plan/failure?error=${encodeURIComponent(msg)}`);
   }
 }
