@@ -19,6 +19,10 @@ function getBaseUrl() {
   return `${proto}://${host}`;
 }
 
+function isValidEmail(address: string | undefined) {
+  return typeof address === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createRouteClient();
@@ -183,9 +187,9 @@ export async function POST(req: Request) {
     }
 
     // Identificación del pagador:
-    // - Preferimos payer_email si se proporciona (o si existe en el perfil o email del usuario)
-    // - Alternativamente, aceptamos payer_id (ID numérico del usuario de MP) si se proporciona
-    // - Si no hay ninguno, intentamos igualmente crear el preapproval (MP puede requerir login del pagador en el checkout)
+    // - Preferimos payer_id (ID numérico de usuario de MP) si se proporciona
+    // - Si no hay payer_id, usamos payer_email solo si tiene formato válido
+    // - Si no hay ninguno válido, creamos el preapproval sin identificar (MP pedirá login)
     const bodyPayerEmailRaw = body?.payer_email ?? body?.payerEmail ?? body?.email;
     const bodyPayerEmail = typeof bodyPayerEmailRaw === "string" ? bodyPayerEmailRaw.trim() : undefined;
     const payerEmail = bodyPayerEmail || (profile?.mp_payer_email as string) || (user.email as string) || undefined;
@@ -195,12 +199,14 @@ export async function POST(req: Request) {
       ? String(bodyPayerIdRaw).trim()
       : undefined;
 
+    const usePayerId = !!(payerId && /^\d+$/.test(payerId));
+    const usePayerEmail = !usePayerId && isValidEmail(payerEmail);
+
     const reason = `Suscripción ${plan.name || plan.code}`;
     const externalReference = `${user.id}:${plan.code}`;
 
     const preapprovalBody: Record<string, any> = {
-      ...(payerEmail ? { payer_email: payerEmail } : {}),
-      ...(payerId ? { payer_id: Number(payerId) } : {}),
+      ...(usePayerId ? { payer_id: Number(payerId) } : usePayerEmail ? { payer_email: payerEmail } : {}),
       back_url: successUrl,
       notification_url: `${siteUrl}/api/webhooks/mercadopago`,
       reason,
@@ -240,7 +246,7 @@ export async function POST(req: Request) {
         plan_pending_effective_at: effectiveAt.toISOString(),
         mp_preapproval_id: preapprovalId ?? null,
         mp_subscription_status: status,
-        mp_payer_email: payerEmail,
+        mp_payer_email: usePayerEmail ? payerEmail : null,
       })
       .eq("id", user.id);
 
