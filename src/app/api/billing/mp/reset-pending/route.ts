@@ -34,19 +34,12 @@ export async function POST(req: Request) {
       }
       const { error, count } = await admin
         .from("profiles")
-        .update({ plan_pending_code: null, plan_pending_effective_at: null })
-        .is("plan_pending_code", null) // trick to enable returning minimal count isn't supported; do a second query if needed
-        .select("id", { count: "estimated", head: true });
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      // Ejecutar el update real (sin el filtro is null): limpiamos donde haya pendientes
-      const { error: updErr } = await admin
-        .from("profiles")
-        .update({ plan_pending_code: null, plan_pending_effective_at: null })
+        .update(
+          { plan_pending_code: null, plan_pending_effective_at: null },
+          { count: "estimated" }
+        )
         .not("plan_pending_code", "is", null);
-
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, scope: "all", estimatedAffected: count ?? null });
     }
 
@@ -55,3 +48,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Unexpected Error" }, { status: 500 });
   }
 }
+
