@@ -14,6 +14,8 @@ function getParam(v: string | string[] | undefined) {
 export default function SuccessPage({ searchParams }: Props) {
   const free = getParam(searchParams?.free);
   const scheduled = getParam(searchParams?.scheduled);
+  const already = getParam(searchParams?.already);
+  const created = getParam(searchParams?.created);
 
   let title = "Suscripción iniciada";
   let desc = "Si completaste el pago, aplicaremos el cambio al cierre de tu ciclo actual.";
@@ -23,6 +25,12 @@ export default function SuccessPage({ searchParams }: Props) {
   } else if (scheduled) {
     title = "Cambio de plan programado";
     desc = "Aplicaremos el cambio al cierre de tu ciclo actual.";
+  } else if (already) {
+    title = "Ya tienes este plan";
+    desc = "No se realizaron cambios porque ya estás en este plan.";
+  } else if (created) {
+    title = "Suscripción creada";
+    desc = "Procesaremos el pago y el cambio se aplicará en el próximo ciclo.";
   }
 
   return (

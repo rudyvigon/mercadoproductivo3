@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
-  Star, MapPin, Eye, Heart, Share2, 
+  Star, MapPin, Heart, Share2, 
   Package, Clock, User, Phone,
   ChevronLeft, ChevronRight
 } from "lucide-react";
@@ -438,7 +438,6 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
               <div className="mt-auto flex gap-2">
                 <Button asChild className="flex-1 bg-orange-500 hover:bg-orange-600" size={variant === "compact" ? "sm" : variant === "comfortable" ? "default" : undefined}>
                   <Link href={`/products/${product.id}`}>
-                    <Eye className="h-4 w-4 mr-2" />
                     Ver Producto
                   </Link>
                 </Button>

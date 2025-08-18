@@ -11,7 +11,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const productId = String(body?.productId || "").trim();
-    const days = Number(body?.days ?? 7);
+    const days = Number(body?.days ?? 3);
     const cost = Number(body?.cost ?? 10);
 
     if (!productId) return NextResponse.json({ error: "productId requerido" }, { status: 400 });

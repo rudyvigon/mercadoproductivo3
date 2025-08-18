@@ -73,6 +73,29 @@ export async function POST(req: Request) {
     const successUrl = body?.success_url || (siteUrl ? `${siteUrl}/dashboard/plan/success` : "/dashboard/plan/success");
     const failureUrl = body?.failure_url || (siteUrl ? `${siteUrl}/dashboard/plan/failure` : "/dashboard/plan/failure");
 
+    // Token de MP (si existe). Para planes pagos es requerido; para cancelar en downgrade es opcional.
+    const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+
+    // Evitar reprocesar si el usuario ya tiene un cambio programado vigente (una vez por ciclo)
+    if (profile?.plan_pending_code && profile?.plan_pending_effective_at) {
+      const pendingEff = new Date(profile.plan_pending_effective_at);
+      const nowCheck = new Date();
+      if (!Number.isNaN(pendingEff.getTime()) && pendingEff > nowCheck) {
+        return NextResponse.json(
+          {
+            error: "PLAN_CHANGE_ALREADY_SCHEDULED",
+            details: { plan_pending_code: profile.plan_pending_code, plan_pending_effective_at: profile.plan_pending_effective_at },
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Si intenta contratar el mismo plan, no hacemos nada y confirmamos éxito
+    if ((profile?.plan_code || "") === plan.code) {
+      return NextResponse.json({ redirect_url: successUrl + "?already=1" });
+    }
+
     // Si el plan es gratuito o sin precio, no crear preapproval: programar o activar directamente
     if (!priceMonthly || priceMonthly <= 0) {
       if (!profile?.plan_code) {
@@ -111,6 +134,33 @@ export async function POST(req: Request) {
             plan_pending_effective_at: effectiveAt.toISOString(),
           })
           .eq("id", user.id);
+        // Si hay una suscripción activa en MP, intentar cancelarla para evitar débitos futuros
+        if ((profile as any)?.mp_preapproval_id && MP_ACCESS_TOKEN) {
+          try {
+            const preId = (profile as any).mp_preapproval_id as string;
+            const cancelRes = await fetch(`https://api.mercadopago.com/preapproval/${preId}`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+              },
+              body: JSON.stringify({ status: "cancelled" }),
+            });
+            if (cancelRes.ok) {
+              await admin
+                .from("profiles")
+                .update({ mp_subscription_status: "cancelled" })
+                .eq("id", user.id);
+              try {
+                await admin.from("billing_events").insert({
+                  user_id: user.id,
+                  type: "preapproval_cancelled",
+                  metadata: { preapproval_id: preId, reason: "downgrade_to_free" },
+                } as any);
+              } catch {}
+            }
+          } catch {}
+        }
         try {
           await admin.from("billing_events").insert({
             user_id: user.id,
@@ -123,7 +173,6 @@ export async function POST(req: Request) {
     }
 
     // Plan pago: crear preapproval en Mercado Pago
-    const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
     if (!MP_ACCESS_TOKEN) {
       return NextResponse.json({ error: "MISSING_MP_ACCESS_TOKEN" }, { status: 500 });
     }

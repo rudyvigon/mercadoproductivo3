@@ -39,7 +39,12 @@ export default async function SubscribePage({ searchParams }: Props) {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = json?.error || "SUBSCRIBE_FAILED";
-      redirect(`/dashboard/plan/failure?error=${encodeURIComponent(err)}`);
+      const eff = json?.details?.plan_pending_effective_at as string | undefined;
+      const pend = json?.details?.plan_pending_code as string | undefined;
+      let dest = `/dashboard/plan/failure?error=${encodeURIComponent(err)}`;
+      if (eff) dest += `&effective_at=${encodeURIComponent(eff)}`;
+      if (pend) dest += `&pending=${encodeURIComponent(pend)}`;
+      redirect(dest);
     }
     const redirectUrl = json?.redirect_url as string | undefined;
     if (redirectUrl && redirectUrl.length > 0) {

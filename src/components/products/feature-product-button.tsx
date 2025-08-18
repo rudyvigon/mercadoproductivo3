@@ -17,7 +17,7 @@ import {
 
 export default function FeatureProductButton({
   productId,
-  defaultDays = 7,
+  defaultDays = 3,
   cost = 10,
   featuredUntil,
 }: {

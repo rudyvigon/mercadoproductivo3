@@ -127,6 +127,7 @@ export default async function PlanPage() {
   const mpStatusLabel = mpStatus
     ? ({ authorized: "Autorizada", pending: "Pendiente", paused: "Pausada", cancelled: "Cancelada" } as Record<string, string>)[mpStatus] ?? mpStatus
     : "—";
+  const hasPending = Boolean(profile?.plan_pending_code);
 
   // Rol: normalizar a buyer/seller usando metadata con fallback a profile.role_code
   const roleMeta = (user.user_metadata?.role || (user.user_metadata as any)?.user_type || "").toString();
@@ -252,15 +253,16 @@ export default async function PlanPage() {
               const code = (p.code || "").toLowerCase();
               const label = p.name || p.code || "Plan";
               const isCurrent = planCode && planCode.toLowerCase() === code;
+              const isDisabled = Boolean(isCurrent || hasPending);
               return (
                 <div key={p.code} className="flex items-center justify-between rounded-md border p-3">
                   <div>
                     <div className="font-medium">{label}</div>
                     <div className="text-xs text-muted-foreground">{code}</div>
                   </div>
-                  <Button asChild size="sm" variant={isCurrent ? "secondary" : "default"} disabled={isCurrent}>
+                  <Button asChild size="sm" variant={isDisabled ? "secondary" : "default"} disabled={isDisabled}>
                     <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>
-                      {isCurrent ? "Plan actual" : "Cambiar / Contratar"}
+                      {isCurrent ? "Plan actual" : hasPending ? "Cambio pendiente" : "Cambiar / Contratar"}
                     </Link>
                   </Button>
                 </div>

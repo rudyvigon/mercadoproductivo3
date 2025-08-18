@@ -654,13 +654,13 @@ useEffect(() => {
         const res = await fetch('/api/products/feature', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productId: product.id, days: 7, cost: featureCost ?? 10 }),
+          body: JSON.stringify({ productId: product.id, days: 3, cost: featureCost ?? 10 }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(data?.error || 'No se pudo destacar el producto');
         }
-        toast.success("Producto destacado por 7 días");
+        toast.success("Producto destacado por 3 días");
       }
       router.refresh();
     } catch (error: any) {

@@ -264,7 +264,7 @@ export default async function PlanesPage() {
                     className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
                     variant="default"
                   >
-                    <Link href="/dashboard">
+                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>
                       <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]"></span>
                       <span>Comienza con {label}</span>
                     </Link>
@@ -275,7 +275,7 @@ export default async function PlanesPage() {
                     className={btnClass}
                     variant={btnVariant}
                   >
-                    <Link href="/dashboard">Comienza con {label}</Link>
+                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>Comienza con {label}</Link>
                   </Button>
                 )}
               </CardFooter>

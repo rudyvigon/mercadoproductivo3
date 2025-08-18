@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Star, MapPin, Eye } from "lucide-react";
+import { Star, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 interface FeaturedProduct {
@@ -215,7 +215,6 @@ export default function FeaturedProductsCarousel() {
                       </div>
                       <Button asChild className="w-full bg-orange-500 hover:bg-orange-600">
                         <Link href={`/products/${product.id}`}>
-                          <Eye className="h-4 w-4 mr-2" />
                           Ver Producto
                         </Link>
                       </Button>
