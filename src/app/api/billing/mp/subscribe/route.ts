@@ -9,6 +9,9 @@ export const revalidate = 0;
 function getBaseUrl() {
   const envSite = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (envSite) return envSite.replace(/\/$/, "");
+  // En Vercel, VERCEL_URL viene sin protocolo. Construimos https://<dominio>
+  const vercel = process.env.VERCEL_URL;
+  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -179,16 +182,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "MISSING_MP_ACCESS_TOKEN" }, { status: 500 });
     }
 
-    const payerEmail = (profile?.mp_payer_email as string) || (user.email as string) || undefined;
-    if (!payerEmail) {
-      return NextResponse.json({ error: "MISSING_PAYER_EMAIL" }, { status: 400 });
-    }
+    // Identificación del pagador:
+    // - Preferimos payer_email si se proporciona (o si existe en el perfil o email del usuario)
+    // - Alternativamente, aceptamos payer_id (ID numérico del usuario de MP) si se proporciona
+    // - Si no hay ninguno, intentamos igualmente crear el preapproval (MP puede requerir login del pagador en el checkout)
+    const bodyPayerEmailRaw = body?.payer_email ?? body?.payerEmail ?? body?.email;
+    const bodyPayerEmail = typeof bodyPayerEmailRaw === "string" ? bodyPayerEmailRaw.trim() : undefined;
+    const payerEmail = bodyPayerEmail || (profile?.mp_payer_email as string) || (user.email as string) || undefined;
+
+    const bodyPayerIdRaw = body?.payer_id ?? body?.payerId ?? body?.user_id ?? body?.userId;
+    const payerId = (typeof bodyPayerIdRaw === "string" || typeof bodyPayerIdRaw === "number")
+      ? String(bodyPayerIdRaw).trim()
+      : undefined;
 
     const reason = `Suscripción ${plan.name || plan.code}`;
     const externalReference = `${user.id}:${plan.code}`;
 
     const preapprovalBody: Record<string, any> = {
-      payer_email: payerEmail,
+      ...(payerEmail ? { payer_email: payerEmail } : {}),
+      ...(payerId ? { payer_id: Number(payerId) } : {}),
       back_url: successUrl,
       notification_url: `${siteUrl}/api/webhooks/mercadopago`,
       reason,
@@ -255,3 +267,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Unexpected Error" }, { status: 500 });
   }
 }
+
