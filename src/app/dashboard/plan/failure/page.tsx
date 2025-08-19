@@ -16,7 +16,16 @@ export default function FailurePage({ searchParams }: Props) {
   const message = (error || "").toString().replace(/[_-]/g, " ");
   const effectiveAt = getParam(searchParams?.effective_at);
   const pending = getParam(searchParams?.pending);
-  const detail = getParam(searchParams?.detail);
+  const detailParam = getParam(searchParams?.detail);
+  let detailPretty: string | undefined = undefined;
+  if (detailParam) {
+    try {
+      const obj = JSON.parse(detailParam);
+      detailPretty = JSON.stringify(obj, null, 2);
+    } catch {
+      detailPretty = detailParam;
+    }
+  }
 
   return (
     <div className="mx-auto max-w-md p-6">
@@ -38,15 +47,15 @@ export default function FailurePage({ searchParams }: Props) {
                 )}
               </>
             )}
-            {detail && (
-              <>
-                <br />
-                <span className="text-xs text-muted-foreground">Detalle:</span>
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs bg-muted/30 p-2 rounded">{detail}</pre>
-              </>
-            )}
           </CardDescription>
         </CardHeader>
+        {detailPretty && (
+          <div className="px-6 pb-2">
+            <pre className="bg-muted text-muted-foreground text-sm rounded-md p-3 overflow-x-auto whitespace-pre-wrap">
+{detailPretty}
+            </pre>
+          </div>
+        )}
         <CardContent className="flex gap-2 justify-end">
           <Button asChild variant="secondary">
             <Link href="/dashboard/plan">Volver a Mi Plan</Link>

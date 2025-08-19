@@ -4,109 +4,111 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-async function fetchPreapproval(preapprovalId: string) {
+async function processPreapproval(preapprovalId: string) {
+  const admin = createAdminClient();
   const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-  if (!MP_ACCESS_TOKEN) return null;
+  if (!MP_ACCESS_TOKEN) {
+    // No podemos consultar a MP, pero aceptamos el webhook para no reintentar infinito
+    try {
+      await admin.from("billing_events").insert({
+        user_id: null,
+        type: "preapproval_webhook_missing_token",
+        metadata: { preapproval_id: preapprovalId },
+      } as any);
+    } catch {}
+    return;
+  }
+
   try {
     const res = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
+      method: "GET",
       headers: {
         Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
       },
       cache: "no-store",
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-function extractPreapprovalIdAndEvent(body: any, url: string) {
-  const u = new URL(url);
-  const qpId = u.searchParams.get("id");
-  const preapprovalId = body?.data?.id || body?.resource?.id || body?.id || body?.preapproval_id || qpId || null;
-  const action = body?.action || body?.type || body?.event || null;
-  return { preapprovalId, action };
-}
-
-export async function POST(req: Request) {
-  try {
-    const admin = createAdminClient();
-
-    const txt = await req.text();
-    let body: any = {};
-    try { body = txt ? JSON.parse(txt) : {}; } catch { body = {}; }
-
-    const { preapprovalId, action } = extractPreapprovalIdAndEvent(body, req.url);
-    if (!preapprovalId) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "NO_PREAPPROVAL_ID" });
-    }
-
-    const pre = await fetchPreapproval(preapprovalId);
-    const status: string | null = pre?.status || body?.status || null;
-    const external: string | null = pre?.external_reference || body?.external_reference || null;
-
-    let userId: string | null = null;
-    let planCode: string | null = null;
-    if (external && typeof external === "string" && external.includes(":")) {
-      const [u, p] = external.split(":");
-      userId = u || null;
-      planCode = p || null;
-    }
-
-    // Fallback: si no viene external_reference, buscar por mp_preapproval_id
-    if (!userId) {
-      const { data: profByPre } = await admin
-        .from("profiles")
-        .select("id")
-        .eq("mp_preapproval_id", preapprovalId)
-        .maybeSingle();
-      if (profByPre?.id) userId = profByPre.id;
-    }
-
-    if (!userId) {
-      // No podemos asociar, pero registramos evento
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
       try {
         await admin.from("billing_events").insert({
           user_id: null,
-          type: "mp_webhook_unmatched",
-          metadata: { preapproval_id: preapprovalId, status, action, body },
+          type: "preapproval_webhook_fetch_failed",
+          metadata: { preapproval_id: preapprovalId, details: text || null },
         } as any);
       } catch {}
-      return NextResponse.json({ ok: true, unmatched: true });
+      return;
     }
 
-    // Actualizar estado de MP en perfil
-    await admin
-      .from("profiles")
-      .update({
-        mp_preapproval_id: preapprovalId,
-        mp_subscription_status: status || action || null,
-      })
-      .eq("id", userId);
+    const pre = await res.json();
+    const status = (pre?.status as string | undefined) || null;
+    const externalRef = (pre?.external_reference as string | undefined) || null;
+    const id = (pre?.id as string | undefined) || preapprovalId;
+
+    let userId: string | null = null;
+    let planCode: string | null = null;
+    if (typeof externalRef === "string" && externalRef.includes(":")) {
+      const [uid, code] = externalRef.split(":");
+      userId = uid || null;
+      planCode = code || null;
+    }
+
+    if (userId) {
+      await admin
+        .from("profiles")
+        .update({ mp_preapproval_id: id, mp_subscription_status: status })
+        .eq("id", userId);
+    } else {
+      // Fallback: actualizar por preapproval id para no perder estado
+      await admin
+        .from("profiles")
+        .update({ mp_subscription_status: status })
+        .eq("mp_preapproval_id", id);
+    }
 
     try {
       await admin.from("billing_events").insert({
         user_id: userId,
-        type: "mp_webhook",
-        metadata: {
-          preapproval_id: preapprovalId,
-          status,
-          action,
-          external_reference: external,
-          plan_code: planCode,
-        },
+        type: "preapproval_webhook",
+        metadata: { preapproval_id: id, status, external_reference: externalRef, plan_code: planCode },
       } as any);
     } catch {}
-
-    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unexpected" }, { status: 500 });
+    try {
+      await createAdminClient().from("billing_events").insert({
+        user_id: null,
+        type: "preapproval_webhook_exception",
+        metadata: { preapproval_id: preapprovalId, error: e?.message || String(e) },
+      } as any);
+    } catch {}
   }
 }
 
-// Algunas integraciones de MP pueden invocar GET con query `id`
+function getIdFromUrl(url: string) {
+  try {
+    const u = new URL(url);
+    const id = u.searchParams.get("id") || u.searchParams.get("preapproval_id");
+    return id || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function POST(req: Request) {
+  let id: string | undefined;
+  try {
+    const body = await req.json().catch(() => undefined);
+    id = (body?.data?.id as string | undefined) || (body?.id as string | undefined) || getIdFromUrl(req.url);
+    const type = (body?.type as string | undefined) || (body?.topic as string | undefined) || "";
+    if ((type && type.toLowerCase().includes("preapproval")) || id) {
+      if (id) await processPreapproval(id);
+    }
+  } catch {}
+  return NextResponse.json({ ok: true, id: id || null });
+}
+
 export async function GET(req: Request) {
-  return POST(req);
+  const id = getIdFromUrl(req.url);
+  if (id) await processPreapproval(id);
+  // MP espera 200 para no reintentar
+  return NextResponse.json({ ok: true, id: id || null });
 }

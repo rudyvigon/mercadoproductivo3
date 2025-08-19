@@ -9,18 +9,11 @@ export const revalidate = 0;
 function getBaseUrl() {
   const envSite = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (envSite) return envSite.replace(/\/$/, "");
-  // En Vercel, VERCEL_URL viene sin protocolo. Construimos https://<dominio>
-  const vercel = process.env.VERCEL_URL;
-  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   if (!host) return "";
   return `${proto}://${host}`;
-}
-
-function isValidEmail(address: string | undefined) {
-  return typeof address === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
 }
 
 export async function POST(req: Request) {
@@ -186,27 +179,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "MISSING_MP_ACCESS_TOKEN" }, { status: 500 });
     }
 
-    // Identificación del pagador:
-    // - Preferimos payer_id (ID numérico de usuario de MP) si se proporciona
-    // - Si no hay payer_id, usamos payer_email solo si tiene formato válido
-    // - Si no hay ninguno válido, creamos el preapproval sin identificar (MP pedirá login)
-    const bodyPayerEmailRaw = body?.payer_email ?? body?.payerEmail ?? body?.email;
-    const bodyPayerEmail = typeof bodyPayerEmailRaw === "string" ? bodyPayerEmailRaw.trim() : undefined;
-    const payerEmail = bodyPayerEmail || (profile?.mp_payer_email as string) || (user.email as string) || undefined;
-
-    const bodyPayerIdRaw = body?.payer_id ?? body?.payerId ?? body?.user_id ?? body?.userId;
-    const payerId = (typeof bodyPayerIdRaw === "string" || typeof bodyPayerIdRaw === "number")
-      ? String(bodyPayerIdRaw).trim()
-      : undefined;
-
-    const usePayerId = !!(payerId && /^\d+$/.test(payerId));
-    const usePayerEmail = !usePayerId && isValidEmail(payerEmail);
+    const payerEmailRaw = (profile?.mp_payer_email as string) ?? (user.email as string) ?? "";
+    const payerEmail = typeof payerEmailRaw === "string" ? payerEmailRaw.trim() : "";
+    if (!payerEmail || !payerEmail.includes("@")) {
+      return NextResponse.json({ error: "MISSING_PAYER_EMAIL" }, { status: 400 });
+    }
 
     const reason = `Suscripción ${plan.name || plan.code}`;
     const externalReference = `${user.id}:${plan.code}`;
 
     const preapprovalBody: Record<string, any> = {
-      ...(usePayerId ? { payer_id: Number(payerId) } : usePayerEmail ? { payer_email: payerEmail } : {}),
+      payer_email: payerEmail,
       back_url: successUrl,
       notification_url: `${siteUrl}/api/webhooks/mercadopago`,
       reason,
@@ -246,7 +229,7 @@ export async function POST(req: Request) {
         plan_pending_effective_at: effectiveAt.toISOString(),
         mp_preapproval_id: preapprovalId ?? null,
         mp_subscription_status: status,
-        mp_payer_email: usePayerEmail ? payerEmail : null,
+        mp_payer_email: payerEmail,
       })
       .eq("id", user.id);
 
@@ -273,4 +256,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Unexpected Error" }, { status: 500 });
   }
 }
-
