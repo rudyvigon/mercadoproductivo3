@@ -410,8 +410,7 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
           <AccordionItem value="q3">
             <AccordionTrigger>¿Hay descuentos por pago anual?</AccordionTrigger>
             <AccordionContent>
-              Sí, ofrecemos un 15% de descuento en todos los planes pagados anualmente. Contacta a nuestro equipo de
-              ventas para más información.
+              Sí, en todos los planes pagados anualmente obtienes 2 meses gratis!
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value="q4">

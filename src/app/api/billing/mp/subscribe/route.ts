@@ -81,7 +81,13 @@ export async function POST(req: Request) {
     const priceMonthly = pm != null ? pm : (pmc != null ? pmc / 100 : 0);
     const priceYearly = py != null ? py : (pyc != null ? pyc / 100 : null);
     const isYearly = interval === "yearly";
-    const selectedPrice = isYearly ? (priceYearly ?? (priceMonthly > 0 ? priceMonthly * 12 : 0)) : priceMonthly;
+    // Monto anual defensivo: si price_yearly parece igual al mensual, asumimos configuración errónea y usamos mensual*12
+    const yearlyByMonths = priceMonthly > 0 ? priceMonthly * 10 : 0;
+    const selectedPrice = isYearly
+      ? (priceYearly != null
+          ? (priceMonthly > 0 && Math.abs(priceYearly - priceMonthly) < 0.01 ? yearlyByMonths : priceYearly)
+          : yearlyByMonths)
+      : priceMonthly;
     const amountRounded = Math.round(selectedPrice * 100) / 100;
     const currency = ((plan as any).currency || "ARS").toUpperCase();
 
