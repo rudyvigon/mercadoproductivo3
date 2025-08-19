@@ -400,8 +400,8 @@ export async function POST(req: Request) {
 
       if (!ok) {
         const admin = createAdminClient();
-        // Si permitimos pruebas y es un evento simulado (live_mode=false), omitir rechazo y registrar bypass
-        if (allowTests && isTest) {
+        // Si permitimos pruebas en QA, omitir rechazo y registrar bypass
+        if (allowTests) {
           try {
             await admin.from("billing_events").insert({
               user_id: null,
