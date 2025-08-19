@@ -226,6 +226,139 @@ async function processPreapproval(preapprovalId: string) {
   }
 }
 
+// Procesa un cobro de suscripción autorizada (renovación)
+async function processAuthorizedPayment(paymentId: string) {
+  const admin = createAdminClient();
+  const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+  if (!MP_ACCESS_TOKEN) {
+    try {
+      await admin.from("billing_events").insert({
+        user_id: null,
+        kind: "authorized_payment_missing_token",
+        payload: { payment_id: paymentId },
+      } as any);
+    } catch {}
+    return;
+  }
+
+  try {
+    // 1) Obtener el pago autorizado
+    const payRes = await fetch(`https://api.mercadopago.com/authorized_payments/${paymentId}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+      cache: "no-store",
+    });
+    if (!payRes.ok) {
+      const text = await payRes.text().catch(() => "");
+      try {
+        await admin.from("billing_events").insert({
+          user_id: null,
+          kind: "authorized_payment_fetch_failed",
+          payload: { payment_id: paymentId, details: text || null },
+        } as any);
+      } catch {}
+      return;
+    }
+
+    const payment = await payRes.json();
+    const preapprovalId = (payment?.preapproval_id as string | undefined)
+      || (payment?.preapproval?.id as string | undefined)
+      || undefined;
+
+    // 2) Si no obtenemos preapproval, no podemos mapear a usuario de forma confiable
+    if (!preapprovalId) {
+      try {
+        await admin.from("billing_events").insert({
+          user_id: null,
+          kind: "authorized_payment_missing_preapproval",
+          payload: { payment_id: paymentId, raw: payment || null },
+        } as any);
+      } catch {}
+      return;
+    }
+
+    // 3) Obtener detalles del preapproval para extraer external_reference y frecuencia
+    const preRes = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+      cache: "no-store",
+    });
+    if (!preRes.ok) {
+      const text = await preRes.text().catch(() => "");
+      try {
+        await admin.from("billing_events").insert({
+          user_id: null,
+          kind: "authorized_payment_preapproval_fetch_failed",
+          payload: { payment_id: paymentId, preapproval_id: preapprovalId, details: text || null },
+        } as any);
+      } catch {}
+      return;
+    }
+
+    const pre = await preRes.json();
+    const externalRef = (pre?.external_reference as string | undefined) || null;
+    const auto = (pre?.auto_recurring as any) || {};
+    const freq = (auto?.frequency as number | undefined) ?? 1;
+    const ftype = (auto?.frequency_type as string | undefined) ?? "months";
+
+    // 4) Resolver userId a partir del external_reference `${userId}:${planCode}:${interval}`
+    let userId: string | null = null;
+    if (typeof externalRef === "string" && externalRef.includes(":")) {
+      const parts = externalRef.split(":");
+      userId = parts[0] || null;
+    }
+
+    // 5) Calcular la próxima fecha de renovación
+    const now = new Date();
+    const renews = new Date(now);
+    if (ftype === "months") {
+      renews.setMonth(renews.getMonth() + (typeof freq === "number" && freq > 0 ? freq : 1));
+    } else if (ftype === "days") {
+      renews.setDate(renews.getDate() + (typeof freq === "number" && freq > 0 ? freq : 30));
+    } else {
+      renews.setMonth(renews.getMonth() + 1);
+    }
+    const nextRenewsAt = renews.toISOString();
+
+    // 6) Actualizar el perfil (preferimos por userId; si no, por mp_preapproval_id)
+    if (userId) {
+      await admin
+        .from("profiles")
+        .update({ plan_renews_at: nextRenewsAt, mp_subscription_status: "authorized" })
+        .eq("id", userId);
+    } else {
+      await admin
+        .from("profiles")
+        .update({ plan_renews_at: nextRenewsAt, mp_subscription_status: "authorized" })
+        .eq("mp_preapproval_id", preapprovalId);
+    }
+
+    // 7) Registrar evento de renovación
+    try {
+      await admin.from("billing_events").insert({
+        user_id: userId,
+        kind: "subscription_renewed",
+        payload: {
+          payment_id: paymentId,
+          preapproval_id: preapprovalId,
+          amount: (payment?.transaction_amount ?? payment?.amount ?? null) as number | null,
+          currency_id: (payment?.currency_id ?? null) as string | null,
+          frequency: freq,
+          frequency_type: ftype,
+        },
+      } as any);
+    } catch {}
+  } catch (e: any) {
+    try {
+      await createAdminClient().from("billing_events").insert({
+        user_id: null,
+        kind: "authorized_payment_exception",
+        payload: { payment_id: paymentId, error: e?.message || String(e) },
+      } as any);
+    } catch {}
+  }
+}
+
 function getIdFromUrl(url: string) {
   try {
     const u = new URL(url);
@@ -241,9 +374,18 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => undefined);
     id = (body?.data?.id as string | undefined) || (body?.id as string | undefined) || getIdFromUrl(req.url);
-    const type = (body?.type as string | undefined) || (body?.topic as string | undefined) || "";
-    if ((type && type.toLowerCase().includes("preapproval")) || id) {
-      if (id) await processPreapproval(id);
+    const typeRaw = (body?.type as string | undefined) || (body?.topic as string | undefined) || "";
+    const type = typeRaw.toLowerCase();
+    const isPreapproval = /preapproval/.test(type);
+    const isAuthorizedPayment = /authorized_?payment/.test(type) || /authorized_payments?/.test(type);
+
+    if (isPreapproval && id) {
+      await processPreapproval(id);
+    } else if (isAuthorizedPayment && id) {
+      await processAuthorizedPayment(id);
+    } else if (!type && id) {
+      // Fallback: si no viene type, asumimos preapproval (comportamiento previo)
+      await processPreapproval(id);
     }
   } catch {}
   return NextResponse.json({ ok: true, id: id || null });

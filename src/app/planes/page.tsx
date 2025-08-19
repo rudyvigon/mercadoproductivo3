@@ -337,13 +337,23 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-t odd:bg-muted/30">
+              <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Precio mensual</td>
                   {plans.map((p) => {
                     const { monthly, currency } = computePrice(p);
                     return (
                       <td key={`r-price-${p.code}`} className="px-4 py-3">
                         {monthly == null ? "" : monthly === 0 ? "Gratis" : formatCurrency(monthly, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>   <tr className="border-t odd:bg-muted/30">
+                  <td className="px-4 py-3 text-muted-foreground">Precio Anual</td>
+                  {plans.map((p) => {
+                    const { yearly, currency } = computePrice(p);
+                    return (
+                      <td key={`r-price-${p.code}`} className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-primary">{yearly == null ? "" : yearly === 0 ? "Gratis" : formatCurrency(yearly, currency)}</span>
                       </td>
                     );
                   })}
