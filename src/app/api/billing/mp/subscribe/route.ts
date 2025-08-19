@@ -80,16 +80,16 @@ export async function POST(req: Request) {
     const pyc = toNum((plan as any).price_yearly_cents);
     const priceMonthly = pm != null ? pm : (pmc != null ? pmc / 100 : 0);
     const priceYearly = py != null ? py : (pyc != null ? pyc / 100 : null);
-    const isYearly = interval === "yearly";
-    // Monto anual defensivo: si price_yearly parece igual al mensual, asumimos configuración errónea y usamos mensual*12
-    const yearlyByMonths = priceMonthly > 0 ? priceMonthly * 10 : 0;
-    const selectedPrice = isYearly
-      ? (priceYearly != null
-          ? (priceMonthly > 0 && Math.abs(priceYearly - priceMonthly) < 0.01 ? yearlyByMonths : priceYearly)
-          : yearlyByMonths)
-      : priceMonthly;
-    const amountRounded = Math.round(selectedPrice * 100) / 100;
-    const currency = ((plan as any).currency || "ARS").toUpperCase();
+  const isYearly = interval === "yearly";
+  // Monto anual defensivo: si price_yearly es nulo o menor/igual al mensual (configuración errónea), usar mensual*12
+  const yearlyByMonths = priceMonthly > 0 ? priceMonthly * 12 : 0;
+  const selectedPrice = isYearly
+    ? (priceMonthly > 0 && (priceYearly == null || priceYearly <= priceMonthly + 0.01)
+        ? yearlyByMonths
+        : (priceYearly ?? yearlyByMonths))
+    : priceMonthly;
+  const amountRounded = Math.round(selectedPrice * 100) / 100;
+  const currency = ((plan as any).currency || "ARS").toUpperCase();
 
     const siteUrl = getBaseUrl();
     const successUrl = body?.success_url || (siteUrl ? `${siteUrl}/dashboard/plan/success` : "/dashboard/plan/success");
