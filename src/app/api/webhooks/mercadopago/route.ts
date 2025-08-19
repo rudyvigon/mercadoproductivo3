@@ -376,6 +376,11 @@ export async function POST(req: Request) {
     // Leer cuerpo crudo para validar firma
     const raw = await req.text().catch(() => "");
 
+    // Parsear body temprano para detectar modo de prueba
+    const body = raw ? (JSON.parse(raw) as any) : undefined;
+    const allowTests = process.env.MP_WEBHOOK_ALLOW_TESTS === "true";
+    const isTest = body?.live_mode === false;
+
     // Validación HMAC si hay secreto configurado
     const secret = process.env.MP_WEBHOOK_SECRET;
     if (secret) {
@@ -394,22 +399,31 @@ export async function POST(req: Request) {
         timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 
       if (!ok) {
-        // En producción rechazamos; en otros entornos registramos y continuamos
         const admin = createAdminClient();
-        try {
-          await admin.from("billing_events").insert({
-            user_id: null,
-            kind: "webhook_signature_failed",
-            payload: { provided: sigHeader || null },
-          } as any);
-        } catch {}
-        if (process.env.NODE_ENV === "production") {
-          return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
+        // Si permitimos pruebas y es un evento simulado (live_mode=false), omitir rechazo y registrar bypass
+        if (allowTests && isTest) {
+          try {
+            await admin.from("billing_events").insert({
+              user_id: null,
+              kind: "webhook_signature_bypassed_for_test",
+              payload: { provided: sigHeader || null },
+            } as any);
+          } catch {}
+        } else {
+          // En producción rechazamos; en otros entornos registramos y continuamos
+          try {
+            await admin.from("billing_events").insert({
+              user_id: null,
+              kind: "webhook_signature_failed",
+              payload: { provided: sigHeader || null },
+            } as any);
+          } catch {}
+          if (process.env.NODE_ENV === "production") {
+            return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
+          }
         }
       }
     }
-
-    const body = raw ? (JSON.parse(raw) as any) : undefined;
     id = (body?.data?.id as string | undefined) || (body?.id as string | undefined) || getIdFromUrl(req.url);
     const typeRaw = (body?.type as string | undefined) || (body?.topic as string | undefined) || "";
     const type = typeRaw.toLowerCase();
