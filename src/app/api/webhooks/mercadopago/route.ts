@@ -12,12 +12,25 @@ async function processPreapproval(preapprovalId: string) {
     try {
       await admin.from("billing_events").insert({
         user_id: null,
-        type: "preapproval_webhook_missing_token",
-        metadata: { preapproval_id: preapprovalId },
+        kind: "preapproval_webhook_missing_token",
+        payload: { preapproval_id: preapprovalId },
       } as any);
     } catch {}
     return;
   }
+
+  // Helper para obtener precio del plan (scope de la función, no dentro de bloques)
+  const getPlanPrice = async (code?: string | null): Promise<number> => {
+    if (!code) return 0;
+    const { data } = await admin
+      .from("plans")
+      .select("code, price_monthly, price_monthly_cents")
+      .eq("code", code)
+      .maybeSingle();
+    const pm = typeof (data as any)?.price_monthly === "number" ? (data as any).price_monthly : undefined;
+    const pmc = typeof (data as any)?.price_monthly_cents === "number" ? ((data as any).price_monthly_cents / 100) : undefined;
+    return typeof pm === "number" ? pm : (typeof pmc === "number" ? pmc : 0);
+  };
 
   try {
     const res = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
@@ -32,8 +45,8 @@ async function processPreapproval(preapprovalId: string) {
       try {
         await admin.from("billing_events").insert({
           user_id: null,
-          type: "preapproval_webhook_fetch_failed",
-          metadata: { preapproval_id: preapprovalId, details: text || null },
+          kind: "preapproval_webhook_fetch_failed",
+          payload: { preapproval_id: preapprovalId, details: text || null },
         } as any);
       } catch {}
       return;
@@ -43,41 +56,171 @@ async function processPreapproval(preapprovalId: string) {
     const status = (pre?.status as string | undefined) || null;
     const externalRef = (pre?.external_reference as string | undefined) || null;
     const id = (pre?.id as string | undefined) || preapprovalId;
+    const reason = (pre?.reason as string | undefined) || null;
+    const auto = (pre?.auto_recurring as any) || {};
+    const freq = (auto?.frequency as number | undefined) ?? null;
+    const ftype = (auto?.frequency_type as string | undefined) ?? null;
+    const amount = (auto?.transaction_amount as number | undefined) ?? null;
+    const currency_id = (auto?.currency_id as string | undefined) ?? null;
 
     let userId: string | null = null;
     let planCode: string | null = null;
+    let refInterval: string | null = null;
     if (typeof externalRef === "string" && externalRef.includes(":")) {
-      const [uid, code] = externalRef.split(":");
+      const parts = externalRef.split(":");
+      const uid = parts[0];
+      const code = parts[1];
+      const inter = parts[2];
       userId = uid || null;
       planCode = code || null;
+      refInterval = inter || null;
     }
 
+    // Cargar perfil actual (para decidir upgrade/downgrade)
+    let profile: any | null = null;
     if (userId) {
-      await admin
+      const { data: p } = await admin
         .from("profiles")
-        .update({ mp_preapproval_id: id, mp_subscription_status: status })
-        .eq("id", userId);
-    } else {
-      // Fallback: actualizar por preapproval id para no perder estado
+        .select("id, plan_code, plan_activated_at, plan_renews_at, plan_pending_code, plan_pending_effective_at, mp_preapproval_id, mp_subscription_status")
+        .eq("id", userId)
+        .maybeSingle();
+      profile = p as any;
+    }
+
+    // Evitar sobrescribir el preapproval actual del usuario en downgrades.
+    // Sólo usar fallback por preapproval_id cuando no tengamos userId.
+    if (!userId) {
       await admin
         .from("profiles")
         .update({ mp_subscription_status: status })
         .eq("mp_preapproval_id", id);
     }
 
+    // Si el preapproval está autorizado y podemos determinar plan y perfil, decidir si aplicar inmediato
+    if (status === "authorized" && userId && planCode) {
+      const currentPrice = await getPlanPrice(profile?.plan_code || null);
+      const targetPrice = await getPlanPrice(planCode);
+      const isUpgrade = targetPrice > currentPrice;
+
+      if (isUpgrade) {
+        // Aplicar cambio inmediato
+        const now = new Date();
+        const renews = new Date(now);
+        const freq = (pre?.auto_recurring?.frequency as number | undefined) ?? 1;
+        const ftype = (pre?.auto_recurring?.frequency_type as string | undefined) ?? "months";
+        if (ftype === "months") {
+          renews.setMonth(renews.getMonth() + (typeof freq === "number" && freq > 0 ? freq : 1));
+        } else if (ftype === "days") {
+          renews.setDate(renews.getDate() + (typeof freq === "number" && freq > 0 ? freq : 30));
+        } else {
+          renews.setMonth(renews.getMonth() + 1);
+        }
+
+        await admin
+          .from("profiles")
+          .update({
+            plan_code: planCode,
+            plan_pending_code: null,
+            plan_pending_effective_at: null,
+            plan_activated_at: now.toISOString(),
+            plan_renews_at: renews.toISOString(),
+            mp_preapproval_id: id,
+            mp_subscription_status: status,
+          })
+          .eq("id", userId);
+
+        // Cancelar preapproval anterior si existía y es distinto
+        const oldPreId = profile?.mp_preapproval_id && profile.mp_preapproval_id !== id ? profile.mp_preapproval_id : null;
+        if (oldPreId) {
+          try {
+            await fetch(`https://api.mercadopago.com/preapproval/${oldPreId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+              body: JSON.stringify({ status: "cancelled" }),
+            });
+            await admin
+              .from("billing_events")
+              .insert({
+                user_id: userId,
+                kind: "preapproval_cancelled_on_upgrade",
+                payload: {
+                  previous_preapproval_id: oldPreId,
+                  new_preapproval_id: id,
+                  frequency: freq,
+                  amount: amount,
+                  interval: refInterval,
+                  reason: reason,
+                },
+              } as any);
+          } catch {}
+        }
+
+        try {
+          await admin.from("billing_events").insert({
+            user_id: userId,
+            kind: "plan_upgraded_immediate",
+            payload: {
+              preapproval_id: id,
+              plan_code: planCode,
+              frequency: freq,
+              amount: amount,
+              interval: refInterval,
+              reason: reason,
+            },
+          } as any);
+        } catch {}
+      } else {
+        // Downgrade: mantener scheduling (no aplicar inmediato). Sólo registramos evento.
+        // Intentar pausar el nuevo preapproval para evitar cobros en paralelo
+        try {
+          await fetch(`https://api.mercadopago.com/preapproval/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+            body: JSON.stringify({ status: "paused" }),
+          });
+          await admin.from("billing_events").insert({
+            user_id: userId,
+            kind: "preapproval_paused_on_downgrade",
+            payload: {
+              preapproval_id: id,
+              target_plan_code: planCode,
+              frequency: freq,
+              amount: amount,
+              interval: refInterval,
+              reason: reason,
+            },
+          } as any);
+        } catch {}
+        try {
+          await admin.from("billing_events").insert({
+            user_id: userId,
+            kind: "plan_downgrade_scheduled_keep_current_until_renewal",
+            payload: {
+              preapproval_id: id,
+              target_plan_code: planCode,
+              frequency: freq,
+              amount: amount,
+              interval: refInterval,
+              reason: reason,
+            },
+          } as any);
+        } catch {}
+      }
+    }
+
     try {
       await admin.from("billing_events").insert({
         user_id: userId,
-        type: "preapproval_webhook",
-        metadata: { preapproval_id: id, status, external_reference: externalRef, plan_code: planCode },
+        kind: "preapproval_webhook",
+        payload: { preapproval_id: id, status, external_reference: externalRef, plan_code: planCode, interval: refInterval, amount, currency_id, frequency: freq, frequency_type: ftype, reason },
       } as any);
     } catch {}
   } catch (e: any) {
     try {
       await createAdminClient().from("billing_events").insert({
         user_id: null,
-        type: "preapproval_webhook_exception",
-        metadata: { preapproval_id: preapprovalId, error: e?.message || String(e) },
+        kind: "preapproval_webhook_exception",
+        payload: { preapproval_id: preapprovalId, error: e?.message || String(e) },
       } as any);
     } catch {}
   }

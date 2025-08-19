@@ -26,6 +26,8 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({} as any));
     const planCodeRaw = body?.code ?? body?.plan_code;
+    const intervalRaw = body?.interval ?? body?.billing;
+    const interval = typeof intervalRaw === "string" && ["monthly", "yearly"].includes(intervalRaw) ? intervalRaw as "monthly" | "yearly" : "monthly";
     if (!planCodeRaw || typeof planCodeRaw !== "string") {
       return NextResponse.json({ error: "MISSING_PLAN_CODE" }, { status: 400 });
     }
@@ -34,7 +36,7 @@ export async function POST(req: Request) {
     // Cargar plan (incluye columnas opcionales de precio/moneda)
     const { data: plan, error: planErr } = await admin
       .from("plans")
-      .select("code, name, currency, price_monthly, price_monthly_cents")
+      .select("code, name, currency, price_monthly, price_monthly_cents, price_yearly, price_yearly_cents")
       .eq("code", planCode)
       .maybeSingle();
     if (planErr || !plan) {
@@ -64,10 +66,24 @@ export async function POST(req: Request) {
       }
     }
 
-    const priceMonthly = typeof (plan as any).price_monthly === "number" ? (plan as any).price_monthly
-      : typeof (plan as any).price_monthly_cents === "number" ? ((plan as any).price_monthly_cents / 100)
-      : 0;
-    const currency = (plan as any).currency || "ARS";
+    const toNum = (v: any): number | null => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim().length > 0) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      }
+      return null;
+    };
+    const pm = toNum((plan as any).price_monthly);
+    const pmc = toNum((plan as any).price_monthly_cents);
+    const py = toNum((plan as any).price_yearly);
+    const pyc = toNum((plan as any).price_yearly_cents);
+    const priceMonthly = pm != null ? pm : (pmc != null ? pmc / 100 : 0);
+    const priceYearly = py != null ? py : (pyc != null ? pyc / 100 : null);
+    const isYearly = interval === "yearly";
+    const selectedPrice = isYearly ? (priceYearly ?? (priceMonthly > 0 ? priceMonthly * 12 : 0)) : priceMonthly;
+    const amountRounded = Math.round(selectedPrice * 100) / 100;
+    const currency = ((plan as any).currency || "ARS").toUpperCase();
 
     const siteUrl = getBaseUrl();
     const successUrl = body?.success_url || (siteUrl ? `${siteUrl}/dashboard/plan/success` : "/dashboard/plan/success");
@@ -99,12 +115,12 @@ export async function POST(req: Request) {
     }
 
     // Si el plan es gratuito o sin precio, no crear preapproval: programar o activar directamente
-    if (!priceMonthly || priceMonthly <= 0) {
+    if (!selectedPrice || selectedPrice <= 0) {
       if (!profile?.plan_code) {
         // Sin plan actual: activar inmediatamente
         const activatedAt = now.toISOString();
         const renews = new Date(now);
-        renews.setMonth(renews.getMonth() + 1);
+        renews.setMonth(renews.getMonth() + (isYearly ? 12 : 1));
         const renewsAt = renews.toISOString();
         await admin
           .from("profiles")
@@ -122,8 +138,8 @@ export async function POST(req: Request) {
         try {
           await admin.from("billing_events").insert({
             user_id: user.id,
-            type: "free_plan_activated",
-            metadata: { plan_code: plan.code },
+            kind: "free_plan_activated",
+            payload: { plan_code: plan.code },
           } as any);
         } catch {}
         return NextResponse.json({ redirect_url: successUrl + "?free=1" });
@@ -156,8 +172,8 @@ export async function POST(req: Request) {
               try {
                 await admin.from("billing_events").insert({
                   user_id: user.id,
-                  type: "preapproval_cancelled",
-                  metadata: { preapproval_id: preId, reason: "downgrade_to_free" },
+                  kind: "preapproval_cancelled",
+                  payload: { preapproval_id: preId, reason: "downgrade_to_free" },
                 } as any);
               } catch {}
             }
@@ -166,8 +182,8 @@ export async function POST(req: Request) {
         try {
           await admin.from("billing_events").insert({
             user_id: user.id,
-            type: "plan_change_scheduled",
-            metadata: { plan_code: plan.code, effective_at: effectiveAt.toISOString() },
+            kind: "plan_change_scheduled",
+            payload: { plan_code: plan.code, effective_at: effectiveAt.toISOString() },
           } as any);
         } catch {}
         return NextResponse.json({ redirect_url: successUrl + "?scheduled=1" });
@@ -185,8 +201,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "MISSING_PAYER_EMAIL" }, { status: 400 });
     }
 
-    const reason = `Suscripción ${plan.name || plan.code}`;
-    const externalReference = `${user.id}:${plan.code}`;
+    const reason = `Suscripción ${plan.name || plan.code} (${isYearly ? "Anual" : "Mensual"})`;
+    const externalReference = `${user.id}:${plan.code}:${interval}`;
 
     const preapprovalBody: Record<string, any> = {
       payer_email: payerEmail,
@@ -195,9 +211,9 @@ export async function POST(req: Request) {
       reason,
       external_reference: externalReference,
       auto_recurring: {
-        frequency: 1,
+        frequency: isYearly ? 12 : 1,
         frequency_type: "months",
-        transaction_amount: priceMonthly,
+        transaction_amount: amountRounded,
         currency_id: currency,
       },
     };
@@ -222,26 +238,35 @@ export async function POST(req: Request) {
     const status = (pre?.status as string | undefined) || "pending";
 
     // Programar cambio y guardar datos de MP
+    // Si ya existe una suscripción autorizada, NO sobreescribimos mp_preapproval_id/mp_subscription_status todavía,
+    // para poder identificar y cancelar correctamente el preapproval anterior en upgrades
+    // y pausar el nuevo en downgrades sin perder la referencia del actual.
+    const hasAuthorizedCurrent = !!(profile as any)?.mp_preapproval_id && ((profile as any)?.mp_subscription_status === "authorized");
+    const updatePayload: Record<string, any> = {
+      plan_pending_code: plan.code,
+      plan_pending_effective_at: effectiveAt.toISOString(),
+      mp_payer_email: payerEmail,
+    };
+    if (!hasAuthorizedCurrent) {
+      updatePayload.mp_preapproval_id = preapprovalId ?? null;
+      updatePayload.mp_subscription_status = status;
+    }
     await admin
       .from("profiles")
-      .update({
-        plan_pending_code: plan.code,
-        plan_pending_effective_at: effectiveAt.toISOString(),
-        mp_preapproval_id: preapprovalId ?? null,
-        mp_subscription_status: status,
-        mp_payer_email: payerEmail,
-      })
+      .update(updatePayload)
       .eq("id", user.id);
 
     try {
       await admin.from("billing_events").insert({
         user_id: user.id,
-        type: "preapproval_created",
-        metadata: {
+        kind: "preapproval_created",
+        payload: {
           plan_code: plan.code,
           effective_at: effectiveAt.toISOString(),
           preapproval_id: preapprovalId,
           status,
+          interval,
+          amount: amountRounded,
         },
       } as any);
     } catch {}

@@ -10,6 +10,12 @@ import PlanBadge from "@/components/badges/plan-badge";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type Props = { searchParams?: Record<string, string | string[] | undefined> };
+
+function getParam(v: string | string[] | undefined) {
+  return typeof v === "string" ? v : Array.isArray(v) ? v[0] : undefined;
+}
+
 function formatDate(d?: string | null) {
   if (!d) return "—";
   try {
@@ -19,10 +25,15 @@ function formatDate(d?: string | null) {
   }
 }
 
-export default async function PlanPage() {
+export default async function PlanPage({ searchParams }: Props) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
+
+  // Intervalo de suscripción (monthly/yearly). Default: monthly
+  const intervalRaw = getParam(searchParams?.interval);
+  const interval = intervalRaw === "yearly" ? "yearly" : "monthly";
+  const hasInterval = intervalRaw === "yearly" || intervalRaw === "monthly";
 
   // Perfil + plan del usuario
   let { data: profile } = await supabase
@@ -30,6 +41,8 @@ export default async function PlanPage() {
     .select("plan_code, role_code, updated_at, plan_activated_at, plan_renews_at, plan_pending_code, plan_pending_effective_at, mp_subscription_status, mp_preapproval_id")
     .eq("id", user.id)
     .single();
+
+  let didApplyPending = false;
 
   // Si hay un cambio programado vencido, aplicarlo de forma perezosa
   if (profile?.plan_pending_code && profile?.plan_pending_effective_at) {
@@ -54,6 +67,7 @@ export default async function PlanPage() {
             plan_renews_at: newRenewsAt.toISOString(),
           })
           .eq("id", user.id);
+        didApplyPending = true;
         // refrescar perfil
         const { data: refreshed } = await supabase
           .from("profiles")
@@ -63,6 +77,18 @@ export default async function PlanPage() {
         (profile as any) = refreshed as any;
       }
     }
+  }
+
+  // Si aplicamos cambio programado en esta solicitud, notificar al backend para alternar preapprovals (reanudar nuevo y cancelar anterior)
+  if (didApplyPending) {
+    try {
+      const h2 = headers();
+      await fetch("/api/billing/mp/post-apply", {
+        method: "POST",
+        headers: { cookie: h2.get("cookie") ?? "" },
+        cache: "no-store",
+      });
+    } catch {}
   }
 
   const planCode = (profile?.plan_code || "").toString();
@@ -261,7 +287,7 @@ export default async function PlanPage() {
                     <div className="text-xs text-muted-foreground">{code}</div>
                   </div>
                   <Button asChild size="sm" variant={isDisabled ? "secondary" : "default"} disabled={isDisabled}>
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>
+                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}${hasInterval ? `&interval=${interval}` : ""}`} prefetch={false}>
                       {isCurrent ? "Plan actual" : hasPending ? "Cambio pendiente" : "Cambiar / Contratar"}
                     </Link>
                   </Button>
@@ -277,4 +303,3 @@ export default async function PlanPage() {
     </div>
   );
 }
-

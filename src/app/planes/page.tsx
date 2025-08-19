@@ -95,7 +95,7 @@ const isDeluxePlan = (p: PlanRow) => {
   return code.includes("deluxe") || name.includes("deluxe");
 };
 
-export default async function PlanesPage() {
+export default async function PlanesPage({ searchParams }: { searchParams?: { interval?: string } }) {
   // Consumir el endpoint interno que usa Service Role
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -136,6 +136,7 @@ export default async function PlanesPage() {
       }
     }
   } catch {}
+  const interval = searchParams?.interval === "yearly" ? "yearly" : "monthly";
   return (
     <main className="mx-auto max-w-6xl p-4 space-y-6 sm:p-6 sm:space-y-8">
       {/* Hero */}
@@ -145,6 +146,18 @@ export default async function PlanesPage() {
           Planes flexibles diseñados para crecer contigo. Desde emprendedores hasta grandes empresas,
           tenemos la solución perfecta para tus necesidades.
         </p>
+      </section>
+
+      {/* Switch Mensual / Anual */}
+      <section className="flex items-center justify-center">
+        <div className="inline-flex gap-2 rounded-full bg-muted p-1">
+          <Button asChild variant={interval === "monthly" ? "default" : "outline"} size="sm" className="rounded-full">
+            <Link href="/planes?interval=monthly" prefetch={false}>Mensual</Link>
+          </Button>
+          <Button asChild variant={interval === "yearly" ? "default" : "outline"} size="sm" className="rounded-full">
+            <Link href="/planes?interval=yearly" prefetch={false}>Anual</Link>
+          </Button>
+        </div>
       </section>
 
       {/* Plans */}
@@ -196,27 +209,36 @@ export default async function PlanesPage() {
                 <div className="mb-3">
                   {(monthly != null || yearly != null) && (
                     <>
-                      {monthly != null && (
-                        <div className="text-3xl font-bold">
-                          {monthly === 0 ? (
-                            "Gratis"
-                          ) : (
-                            <>
-                              {monthlyFmt} <span className="text-sm text-muted-foreground">/mes</span>
-                            </>
+                      {interval === "yearly" ? (
+                        <>
+                          <div className="text-3xl font-bold">
+                            {yearly != null && yearly === 0 ? (
+                              "Gratis"
+                            ) : (
+                              <>
+                                {yearlyFmt} <span className="text-sm text-muted-foreground">/año</span>
+                              </>
+                            )}
+                          </div>
+                          {monthly != null && (
+                            <div className="text-xs text-muted-foreground">{monthly === 0 ? "o Gratis" : <>o {monthlyFmt} /mes</>}</div>
                           )}
-                        </div>
-                      )}
-                      {yearly != null && (
-                        <div className="text-xs text-muted-foreground">
-                          {yearly === 0 ? (
-                            "o Gratis"
-                          ) : (
-                            <>
-                              o {yearlyFmt} /año
-                            </>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-3xl font-bold">
+                            {monthly != null && monthly === 0 ? (
+                              "Gratis"
+                            ) : (
+                              <>
+                                {monthlyFmt} <span className="text-sm text-muted-foreground">/mes</span>
+                              </>
+                            )}
+                          </div>
+                          {yearly != null && (
+                            <div className="text-xs text-muted-foreground">{yearly === 0 ? "o Gratis" : <>o {yearlyFmt} /año</>}</div>
                           )}
-                        </div>
+                        </>
                       )}
                     </>
                   )}
@@ -264,7 +286,7 @@ export default async function PlanesPage() {
                     className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
                     variant="default"
                   >
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>
+                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}&interval=${interval}`} prefetch={false}>
                       <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]"></span>
                       <span>Comienza con {label}</span>
                     </Link>
@@ -275,7 +297,7 @@ export default async function PlanesPage() {
                     className={btnClass}
                     variant={btnVariant}
                   >
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}`} prefetch={false}>Comienza con {label}</Link>
+                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}&interval=${interval}`} prefetch={false}>Comienza con {label}</Link>
                   </Button>
                 )}
               </CardFooter>
