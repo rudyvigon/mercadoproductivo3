@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createHmac, timingSafeEqual } from "crypto";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -372,7 +373,43 @@ function getIdFromUrl(url: string) {
 export async function POST(req: Request) {
   let id: string | undefined;
   try {
-    const body = await req.json().catch(() => undefined);
+    // Leer cuerpo crudo para validar firma
+    const raw = await req.text().catch(() => "");
+
+    // Validación HMAC si hay secreto configurado
+    const secret = process.env.MP_WEBHOOK_SECRET;
+    if (secret) {
+      const sigHeader =
+        (req.headers.get("x-signature") ||
+          req.headers.get("x-hub-signature-256") ||
+          req.headers.get("x-hub-signature")) ?? "";
+
+      let provided = sigHeader.trim();
+      const m = /sha256=([a-f0-9]+)/i.exec(provided);
+      if (m) provided = m[1];
+
+      const expected = createHmac("sha256", secret).update(raw).digest("hex");
+      const ok =
+        provided.length === expected.length &&
+        timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+
+      if (!ok) {
+        // En producción rechazamos; en otros entornos registramos y continuamos
+        const admin = createAdminClient();
+        try {
+          await admin.from("billing_events").insert({
+            user_id: null,
+            kind: "webhook_signature_failed",
+            payload: { provided: sigHeader || null },
+          } as any);
+        } catch {}
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
+        }
+      }
+    }
+
+    const body = raw ? (JSON.parse(raw) as any) : undefined;
     id = (body?.data?.id as string | undefined) || (body?.id as string | undefined) || getIdFromUrl(req.url);
     const typeRaw = (body?.type as string | undefined) || (body?.topic as string | undefined) || "";
     const type = typeRaw.toLowerCase();
