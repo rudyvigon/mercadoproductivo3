@@ -262,11 +262,38 @@ async function processAuthorizedPayment(paymentId: string) {
     }
 
     const payment = await payRes.json();
+    const status = (payment?.status as string | undefined) || null;
+    const statusDetail = (payment?.status_detail as string | undefined) || null;
     const preapprovalId = (payment?.preapproval_id as string | undefined)
       || (payment?.preapproval?.id as string | undefined)
       || undefined;
 
-    // 2) Si no obtenemos preapproval, no podemos mapear a usuario de forma confiable
+    // 2) Verificar si el pago fue exitoso antes de avanzar la renovación
+    const isSuccess =
+      (typeof status === "string" && status.toLowerCase() === "approved") ||
+      (typeof statusDetail === "string" && statusDetail.toLowerCase() === "accredited");
+
+    if (!isSuccess) {
+      // Registrar intento fallido y no mover la fecha de renovación
+      try {
+        await admin.from("billing_events").insert({
+          user_id: null,
+          kind: "subscription_payment_failed",
+          payload: {
+            payment_id: paymentId,
+            preapproval_id: preapprovalId || null,
+            status,
+            status_detail: statusDetail,
+            amount: (payment?.transaction_amount ?? payment?.amount ?? null) as number | null,
+            currency_id: (payment?.currency_id ?? null) as string | null,
+            raw: payment || null,
+          },
+        } as any);
+      } catch {}
+      return;
+    }
+
+    // 3) Si no obtenemos preapproval, no podemos mapear a usuario de forma confiable
     if (!preapprovalId) {
       try {
         await admin.from("billing_events").insert({
@@ -278,7 +305,7 @@ async function processAuthorizedPayment(paymentId: string) {
       return;
     }
 
-    // 3) Obtener detalles del preapproval para extraer external_reference y frecuencia
+    // 4) Obtener detalles del preapproval para extraer external_reference y frecuencia
     const preRes = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
@@ -346,6 +373,8 @@ async function processAuthorizedPayment(paymentId: string) {
           currency_id: (payment?.currency_id ?? null) as string | null,
           frequency: freq,
           frequency_type: ftype,
+          status,
+          status_detail: statusDetail,
         },
       } as any);
     } catch {}

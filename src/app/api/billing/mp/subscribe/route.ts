@@ -196,6 +196,41 @@ export async function POST(req: Request) {
       }
     }
 
+    // Detectar downgrade con suscripción vigente autorizada: no crear preapproval ni redirigir a MP
+    // Cargar precio mensual del plan actual para comparar
+    let currentMonthlyPrice: number | null = null;
+    if (profile?.plan_code) {
+      const { data: currentPlan } = await admin
+        .from("plans")
+        .select("code, price_monthly, price_monthly_cents")
+        .eq("code", profile.plan_code)
+        .maybeSingle();
+      const cpm = toNum((currentPlan as any)?.price_monthly);
+      const cpmc = toNum((currentPlan as any)?.price_monthly_cents);
+      currentMonthlyPrice = cpm != null ? cpm : (cpmc != null ? cpmc / 100 : null);
+    }
+    const hasAuthorizedCurrent = !!(profile as any)?.mp_preapproval_id && ((profile as any)?.mp_subscription_status === "authorized");
+    const isDowngrade = (currentMonthlyPrice != null) && (currentMonthlyPrice > priceMonthly);
+
+    if (hasAuthorizedCurrent && isDowngrade) {
+      // Programar el cambio a fin de ciclo, sin crear nuevo preapproval aún
+      await admin
+        .from("profiles")
+        .update({
+          plan_pending_code: plan.code,
+          plan_pending_effective_at: effectiveAt.toISOString(),
+        })
+        .eq("id", user.id);
+      try {
+        await admin.from("billing_events").insert({
+          user_id: user.id,
+          kind: "plan_downgrade_scheduled_no_checkout",
+          payload: { plan_code: plan.code, effective_at: effectiveAt.toISOString(), current_monthly_price: currentMonthlyPrice, target_monthly_price: priceMonthly, interval },
+        } as any);
+      } catch {}
+      return NextResponse.json({ redirect_url: successUrl + "?scheduled=1" });
+    }
+
     // Plan pago: crear preapproval en Mercado Pago
     if (!MP_ACCESS_TOKEN) {
       return NextResponse.json({ error: "MISSING_MP_ACCESS_TOKEN" }, { status: 500 });
@@ -247,7 +282,7 @@ export async function POST(req: Request) {
     // Si ya existe una suscripción autorizada, NO sobreescribimos mp_preapproval_id/mp_subscription_status todavía,
     // para poder identificar y cancelar correctamente el preapproval anterior en upgrades
     // y pausar el nuevo en downgrades sin perder la referencia del actual.
-    const hasAuthorizedCurrent = !!(profile as any)?.mp_preapproval_id && ((profile as any)?.mp_subscription_status === "authorized");
+    // Nota: hasAuthorizedCurrent ya fue calculado arriba si aplica downgrade.
     const updatePayload: Record<string, any> = {
       plan_pending_code: plan.code,
       plan_pending_effective_at: effectiveAt.toISOString(),
