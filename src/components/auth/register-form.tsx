@@ -67,7 +67,7 @@ export default function RegisterForm() {
             last_name: values.lastName,
             // Si es vendedor, asignar plan básico por defecto
             ...(values.userType === "seller"
-              ? { plan_code: "free", plan: "free" }
+              ? { plan_code: "gratis", plan: "Plan Básico" }
               : {}),
           },
           emailRedirectTo:

@@ -7,10 +7,11 @@ export const runtime = "nodejs";
 
 function planCodeToLabel(code?: string | null) {
   const c = String(code || "").toLowerCase();
-  if (c === "free" || c === "basic") return "Básico";
-  if (c === "plus" || c === "enterprise") return "Plus";
-  if (c === "premium" || c === "pro") return "Premium";
-  return "Básico";
+  // Canonicales: gratis, plus, deluxe. Sinónimos por compatibilidad.
+  if (c === "gratis" || c === "free" || c === "basic") return "Plan Básico";
+  if (c === "plus" || c === "enterprise") return "Plan Plus";
+  if (c === "deluxe" || c === "premium" || c === "pro") return "Plan Deluxe";
+  return "Plan Básico";
 }
 
 export async function GET(req: Request) {
