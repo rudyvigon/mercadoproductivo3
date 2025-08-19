@@ -29,13 +29,15 @@ export default async function SubscribePage({ searchParams }: Props) {
   const baseUrl = getBaseUrl();
   const cookieStore = cookies();
   const cookieHeader = cookieStore.getAll().map(c => `${c.name}=${c.value}`).join("; ");
+  const successUrl = `${baseUrl}/dashboard/plan/success`;
+  const failureUrl = `${baseUrl}/dashboard/plan/failure`;
   try {
     const res = await fetch(`${baseUrl}/api/billing/mp/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(cookieHeader ? { Cookie: cookieHeader } : {}) },
       credentials: "include",
       cache: "no-store",
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, success_url: successUrl, failure_url: failureUrl }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
