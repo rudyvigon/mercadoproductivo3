@@ -27,8 +27,13 @@ function formatDate(date?: string | null) {
   }
 }
 
-export default async function VendorDetailPage({ params }: { params: { id: string } }) {
+export default async function VendorDetailPage({ params, searchParams }: { params: { id: string }, searchParams?: { from?: string; page?: string } }) {
   const id = params.id;
+  const from = (searchParams?.from || "").toLowerCase();
+  const backHref = from === "exportadores"
+    ? `/exportadores${searchParams?.page ? `?page=${searchParams.page}` : ""}`
+    : "/vendedores";
+  const backText = from === "exportadores" ? "Volver a Exportadores" : "Volver a Vendedores";
   const hdrs = headers();
   const host = hdrs.get("x-forwarded-host") || hdrs.get("host");
   const proto = hdrs.get("x-forwarded-proto") || "http";
@@ -45,8 +50,8 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
     <div className="min-h-screen bg-white py-10 sm:py-12">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
-          <Link href="/vendedores" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="h-4 w-4 mr-2" /> Volver a Vendedores
+          <Link href={backHref} className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900">
+            <ArrowLeft className="h-4 w-4 mr-2" /> {backText}
           </Link>
         </div>
 

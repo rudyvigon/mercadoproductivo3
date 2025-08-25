@@ -66,7 +66,7 @@ export default async function ExportadoresPage({
         <div className="text-center mb-10 sm:mb-12">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Exportadores</h1>
           <div className="w-24 h-1 bg-orange-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Empresas con Plan Deluxe que declaran capacidad de exportación.</p>
+          <p className="text-gray-600">Encuentra aquí grandes empresas exportadoras .</p>
         </div>
 
         {/* Grid 4x5 en escritorio (20 por página) */}
@@ -110,7 +110,7 @@ export default async function ExportadoresPage({
 
                 {/* CTA */}
                 <Link
-                  href={`/vendedores/${seller.id}`}
+                  href={`/vendedores/${seller.id}?from=exportadores${page ? `&page=${page}` : ""}`}
                   className="block text-center text-sm rounded-md py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-100"
                 >
                   Ver perfil

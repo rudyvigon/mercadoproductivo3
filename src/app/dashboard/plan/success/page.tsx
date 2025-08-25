@@ -80,12 +80,24 @@ function planLabelFromCode(code?: string | null, fallback?: string | null) {
 type Props = { searchParams?: Record<string, string | string[] | undefined> };
 
 export default async function SuccessPage({ searchParams }: Props) {
-  const preapprovalId = getParam(searchParams?.preapproval_id) || getParam(searchParams?.id);
+  let preapprovalId = getParam(searchParams?.preapproval_id) || getParam(searchParams?.id);
   const created = getParam(searchParams?.created) === "1";
   const scheduled = getParam(searchParams?.scheduled) === "1";
   const already = getParam(searchParams?.already) === "1";
   const free = getParam(searchParams?.free) === "1";
   const effectiveAt = getParam(searchParams?.effective_at);
+
+  // Fallback: si no llegó el preapproval_id en la URL, intentar recuperar el último creado para el usuario
+  if (!preapprovalId) {
+    const baseUrl = getBaseUrl();
+    try {
+      const res = await fetch(`${baseUrl}/api/billing/mp/last-preapproval`, { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json().catch(() => null as any);
+        if (json?.preapproval_id) preapprovalId = String(json.preapproval_id);
+      }
+    } catch {}
+  }
 
   // Disparar procesamiento del preapproval en nuestro backend (idempotente)
   if (preapprovalId) {

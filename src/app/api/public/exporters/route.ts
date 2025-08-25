@@ -9,7 +9,7 @@ function planCodeToLabel(code?: string | null) {
   const c = String(code || "").toLowerCase();
   if (c === "gratis" || c === "free" || c === "basic") return "Plan Básico";
   if (c === "plus" || c === "enterprise") return "Plan Plus";
-  if (c === "deluxe" || c === "premium" || c === "pro") return "Plan Deluxe";
+  if (c.includes("deluxe") || c.includes("diamond") || c === "premium" || c === "pro") return "Plan Deluxe";
   return "Plan Básico";
 }
 
@@ -37,11 +37,14 @@ export async function GET(req: Request) {
       (planRows || []).map((p: any) => [String(p?.code || "").toLowerCase(), p?.name || null])
     );
 
-    // 1) Obtener IDs de perfiles con exportador=true y plan deluxe/premium/pro
+    // 1) Obtener IDs de perfiles con exportador=true y plan con capacidad de exportador
+    // Soporta variantes que contengan 'deluxe' o 'diamond', además de compatibilidad con 'premium' y 'pro'
     const { data: exporterProfiles, error: exporterErr } = await supabase
       .from("profiles")
       .select("id, plan_code")
-      .in("plan_code", ["deluxe", "premium", "pro"]) // sinónimos tratados como deluxe
+      .or(
+        "plan_code.ilike.*deluxe*,plan_code.ilike.*diamond*,plan_code.eq.premium,plan_code.eq.pro"
+      )
       .eq("exportador", true);
 
     if (exporterErr) {

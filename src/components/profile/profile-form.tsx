@@ -68,6 +68,7 @@ type ProfileFormProps = {
 export default function ProfileForm({ disabled = false, hideInternalSubmit = false, registerSubmit, onSaved }: ProfileFormProps) {
   const supabase = useMemo(() => createClient(), []);
   const [saving, setSaving] = useState(false);
+  const [savingExportador, setSavingExportador] = useState(false);
   const [loading, setLoading] = useState(true);
   const existingPlanCodeRef = useRef<string | null>(null);
   const exportadorColumnExistsRef = useRef<boolean>(true);
@@ -318,6 +319,54 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     if (e?.target) e.target.value = "";
   }
 
+  // Guardado inmediato del switch de Exportador (independiente del resto del formulario)
+  async function saveExportadorImmediate(nextValue: boolean, prevValue?: boolean) {
+    if (!exportadorColumnExistsRef.current) return;
+    setSavingExportador(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+      const planLower = (existingPlanCodeRef.current || "").toLowerCase();
+      const isDeluxe = (planLower.includes("deluxe") || planLower.includes("diamond") || planLower === "premium" || planLower === "pro");
+      const payload: any = {
+        updated_at: new Date().toISOString(),
+      };
+      // Solo persistimos exportador si el plan lo permite, caso contrario lo forzamos a false
+      payload.exportador = isDeluxe ? Boolean(nextValue) : false;
+      // Asegurar que el trigger tenga NEW.plan_code
+      const roleRaw = (((user.user_metadata as any)?.role) || ((user.user_metadata as any)?.user_type) || "") as string;
+      const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
+      if (existingPlanCodeRef.current) {
+        payload.plan_code = existingPlanCodeRef.current;
+      } else if (roleNormalized === "seller") {
+        payload.plan_code = "free";
+      }
+      try { console.debug("Perfil: toggle exportador ->", { nextValue, plan_code: (existingPlanCodeRef.current || null), isDeluxe }); } catch {}
+      const { data: saved, error } = await supabase
+        .from("profiles")
+        .update({ exportador: payload.exportador, updated_at: payload.updated_at })
+        .eq("id", user.id)
+        .select("exportador, plan_code")
+        .single();
+      if (error) throw error;
+      try { console.debug("Perfil: toggle exportador guardado OK", saved); } catch {}
+      if (typeof saved?.exportador === "boolean") {
+        // Sincronizar por si el trigger lo ajustó
+        form.setValue("exportador", saved.exportador, { shouldDirty: false, shouldTouch: false });
+      }
+    } catch (e: any) {
+      console.error("Perfil: error al guardar toggle exportador", e);
+      const hint = e?.hint || e?.details || (e?.error_description ?? e?.message);
+      const msg = toSpanishErrorMessage(e, hint || "No se pudo actualizar la preferencia de exportador");
+      toast.error(msg);
+      // Revertir UI (volvemos al valor actual en formulario)
+      const fallback = typeof prevValue === "boolean" ? prevValue : !nextValue;
+      form.setValue("exportador", Boolean(fallback), { shouldDirty: false, shouldTouch: false });
+    } finally {
+      setSavingExportador(false);
+    }
+  }
+
   async function onSubmit(values: ProfileFormValues) {
     setSaving(true);
     try {
@@ -337,22 +386,34 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         postal_code: values.cp,
         updated_at: new Date().toISOString(),
       };
-      // Persistir exportador sólo si el plan es Deluxe (o sinónimos)
+      // Persistir exportador sólo si el plan es Deluxe (o sinónimos/variantes)
       const planLower = (existingPlanCodeRef.current || "").toLowerCase();
-      const isDeluxe = planLower === "deluxe" || planLower === "premium" || planLower === "pro";
+      const isDeluxe = hasExportadorCapability(planLower);
       if (exportadorColumnExistsRef.current) {
         payload.exportador = isDeluxe ? Boolean(values.exportador) : false;
       }
-      // Si es vendedor (normalizado) y aún no tiene plan_code, asignar 'free' por defecto
+      // Debug útil para diagnosticar por qué no se aplica el cambio
+      try { console.debug("Perfil: guardando", { exportador: payload.exportador, plan_code: planLower, isDeluxe }); } catch {}
+      // Incluir siempre plan_code en el payload para que el trigger tenga el valor en NEW.plan_code
       const roleRaw = (((user.user_metadata as any)?.role) || ((user.user_metadata as any)?.user_type) || "") as string;
       const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
-      if (roleNormalized === "seller" && !existingPlanCodeRef.current) {
+      if (existingPlanCodeRef.current) {
+        payload.plan_code = existingPlanCodeRef.current;
+      } else if (roleNormalized === "seller") {
+        // Si es vendedor y aún no tiene plan_code, asignar 'free' por defecto
         payload.plan_code = "free";
       }
-      const { error } = await supabase
+      const { data: saved, error } = await supabase
         .from("profiles")
-        .upsert({ id: user.id, ...payload }, { onConflict: "id" });
+        .upsert({ id: user.id, ...payload }, { onConflict: "id" })
+        .select("exportador, plan_code")
+        .single();
       if (error) throw error;
+      try { console.debug("Perfil: guardado OK", saved); } catch {}
+      // Sincronizar el valor por si el trigger lo ajustó
+      if (exportadorColumnExistsRef.current && typeof saved?.exportador === "boolean") {
+        form.setValue("exportador", saved.exportador, { shouldDirty: false, shouldTouch: false });
+      }
       // Actualizar metadata de auth para reflejar el nombre en listeners de auth
       try {
         await supabase.auth.updateUser({
@@ -372,8 +433,10 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       } catch {}
       onSaved?.();
     } catch (e: any) {
-      console.error(e);
-      toast.error(toSpanishErrorMessage(e, "No se pudo actualizar el perfil"));
+      console.error("Perfil: error al guardar", e);
+      const hint = e?.hint || e?.details || (e?.error_description ?? e?.message);
+      const msg = toSpanishErrorMessage(e, hint || "No se pudo actualizar el perfil");
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -433,7 +496,15 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
 
   const allDisabled = disabled || saving;
   const planCodeLower = (existingPlanCodeRef.current || "").toLowerCase();
-  const canToggleExportador = exportadorColumnExistsRef.current && (planCodeLower === "deluxe" || planCodeLower === "premium" || planCodeLower === "pro");
+  const hasExportadorCapability = (code: string) => {
+    const c = (code || "").toLowerCase();
+    // Soporta variantes como 'deluxe_monthly'/'deluxe_yearly' y sinónimos como 'diamond'.
+    if (!c) return false;
+    if (c.includes("deluxe") || c.includes("diamond")) return true;
+    // Compatibilidad histórica: permitir premium/pro si así se configuró el backend
+    return c === "premium" || c === "pro";
+  };
+  const canToggleExportador = exportadorColumnExistsRef.current && hasExportadorCapability(planCodeLower);
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
@@ -681,14 +752,19 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         </div>
       </div>
 
-      {/* Switch Exportador (sólo visible para plan Deluxe) */}
+      {/* Switch Exportador (sólo visible para plan con capacidad: deluxe/diamond/premium/pro) */}
       {canToggleExportador && (
-        <div className="rounded-md border p-4 bg-muted/30">
+        <div className="rounded-lg border border-orange-200 bg-gradient-to-r from-orange-50/60 to-transparent p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label className="text-sm">¿Mostrarse como Exportador?</Label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Activa esta opción para aparecer en el listado público de exportadores. Requiere plan Deluxe.
+            <div className="min-w-0">
+              <div className="mb-1 inline-flex items-center gap-2">
+                <Label className="text-sm font-medium">¿Mostrarse como Exportador?</Label>
+                <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                  Beneficio Deluxe
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Activa esta opción para aparecer en el listado público de exportadores visibles para compradores.
               </p>
             </div>
             <Controller
@@ -697,8 +773,8 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
               render={({ field }) => (
                 <Switch
                   checked={Boolean(field.value)}
-                  onCheckedChange={field.onChange}
-                  disabled={allDisabled}
+                  onCheckedChange={(v) => { const prev = Boolean(field.value); field.onChange(v); void saveExportadorImmediate(v, prev); }}
+                  disabled={saving || savingExportador}
                   aria-invalid={undefined}
                 />
               )}

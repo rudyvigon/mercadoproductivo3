@@ -28,9 +28,18 @@ async function processPreapproval(preapprovalId: string) {
       .select("code, price_monthly, price_monthly_cents")
       .eq("code", code)
       .maybeSingle();
-    const pm = typeof (data as any)?.price_monthly === "number" ? (data as any).price_monthly : undefined;
-    const pmc = typeof (data as any)?.price_monthly_cents === "number" ? ((data as any).price_monthly_cents / 100) : undefined;
-    return typeof pm === "number" ? pm : (typeof pmc === "number" ? pmc : 0);
+    const toNum = (v: any): number | null => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim().length > 0) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      }
+      return null;
+    };
+    const pm = toNum((data as any)?.price_monthly);
+    const pmc = toNum((data as any)?.price_monthly_cents);
+    const monthly = pm != null ? pm : (pmc != null ? pmc / 100 : null);
+    return monthly != null ? monthly : 0;
   };
 
   try {

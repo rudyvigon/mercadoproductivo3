@@ -5,7 +5,7 @@ function planCodeToLabel(code?: string | null) {
   const c = String(code || "").toLowerCase();
   if (c === "free" || c === "basic") return "Básico";
   if (c === "plus" || c === "enterprise") return "Plus";
-  if (c === "deluxe") return "Deluxe";
+  if (c.includes("deluxe") || c.includes("diamond") || c === "premium" || c === "pro") return "Deluxe";
   return "Básico";
 }
 
@@ -34,7 +34,7 @@ export default function PlanBadge({
     bg = "bg-gradient-to-r from-orange-400 via-amber-500 to-orange-600";
     text = "text-white";
     Icon = Crown;
-  } else if (normLower.includes("deluxe")) {
+  } else if (normLower.includes("deluxe") || normLower.includes("diamond")) {
     // Gradiente estilo diamante con animación
     bg = "bg-gradient-to-r from-sky-400 via-indigo-500 to-fuchsia-500 animate-gradient-x";
     text = "text-white";
