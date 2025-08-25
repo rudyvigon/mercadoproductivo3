@@ -119,14 +119,15 @@ export default async function Page() {
   const maxProducts = plan?.max_products ?? null;
 
   // Límite de visibilidad pública por plan (enforcement del endpoint público)
+  // Considera también el fallback por etiqueta cuando no hay plan_code pero el label muestra "Básico".
   const freeCodes = new Set(["gratis", "free", "basic"]);
   const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
   const deluxeCodes = new Set(["deluxe", "diamond"]);
-  const planVisibleLimit = freeCodes.has(planCodeLower)
+  const planVisibleLimit = (isBasicPlan || freeCodes.has(planCodeLower))
     ? 1
-    : plusCodes.has(planCodeLower)
+    : (plusCodes.has(planCodeLower) || /plus|enterprise|premium|pro/.test(labelLower))
     ? 15
-    : deluxeCodes.has(planCodeLower)
+    : (deluxeCodes.has(planCodeLower) || /deluxe|diamond/.test(labelLower))
     ? 30
     : (maxProducts ?? null);
   const exceedsVisible = typeof productsCount === "number" && planVisibleLimit != null && productsCount > planVisibleLimit;
@@ -196,7 +197,7 @@ export default async function Page() {
                 <UsageRadial
                   label="Productos"
                   value={productsCount ?? 0}
-                  max={maxProducts}
+                  max={planVisibleLimit}
                   color="#8b5cf6"
                   layout="stacked"
                   size={148}

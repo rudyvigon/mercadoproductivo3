@@ -24,10 +24,11 @@ export async function GET(req: NextRequest) {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Construimos la query base SIN range para poder aplicar límites por plan
+    // a todo el conjunto y recién luego paginar.
     let query = supabase
       .from("products")
-      .select("*", { count: "exact" })
-      .range(from, to);
+      .select("*", { count: "exact" });
 
     if (sellerId) {
       query = query.eq("user_id", sellerId);
@@ -255,106 +256,107 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const items = products || [];
+    const candidates = products || [];
 
-    // Filtrar por límites de plan por vendedor (gratis=1, plus=15, deluxe=30)
-    let withImages = items;
-    if (items.length > 0) {
-      const userIds = Array.from(new Set(items.map((p) => p.user_id)));
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, plan_code, first_name, last_name, city, province, company")
-        .in("id", userIds);
-
-      const profileById = new Map<string, any>();
-      for (const prof of (profiles || []) as any[]) {
-        profileById.set(prof.id, prof);
-      }
-
-      const freeCodes = new Set(["gratis", "free", "basic"]);
-      const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
-      const deluxeCodes = new Set(["deluxe", "diamond"]);
-      const getSellerLimit = (uid: string) => {
-        const code = String(profileById.get(uid)?.plan_code || "").toLowerCase();
-        if (freeCodes.has(code)) return 1;
-        if (plusCodes.has(code)) return 15;
-        if (deluxeCodes.has(code)) return 30;
-        return 999999; // otros planes: sin límite práctico
-      };
-
-      let filtered = items as typeof items;
-      if (sellerId) {
-        const limit = getSellerLimit(sellerId);
-        const allowed = Math.max(0, limit - (excludeProductId ? 1 : 0));
-        filtered = items.slice(0, allowed);
-      } else {
-        // Listado general: aplicar límite por vendedor según plan
-        const usedBySeller = new Map<string, number>();
-        filtered = [] as typeof items;
-        for (const p of items) {
-          const uid = p.user_id as string;
-          const limit = getSellerLimit(uid);
-          const used = usedBySeller.get(uid) ?? 0;
-          if (used >= limit) continue;
-          usedBySeller.set(uid, used + 1);
-          filtered.push(p);
-        }
-      }
-
-      // Enriquecer con imágenes para el subconjunto filtrado
-      const ids = filtered.map((p) => p.id);
-      const { data: images } = await supabase
-        .from("product_images")
-        .select("product_id,url,id")
-        .in("product_id", ids)
-        .order("id", { ascending: true });
-
-      const firstImageByProduct = new Map<string, string | null>();
-      if (images) {
-        for (const img of images as any[]) {
-          if (!firstImageByProduct.has(img.product_id)) {
-            firstImageByProduct.set(img.product_id, img.url);
-          }
-        }
-      }
-
-      withImages = filtered.map((p) => ({
-        ...p,
-        primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
-        profiles: (() => {
-          const prof = profileById.get(p.user_id) || {};
-          return {
-            first_name: prof.first_name,
-            last_name: prof.last_name,
-            city: prof.city,
-            province: prof.province,
-            company: prof.company,
-            plan_code: prof.plan_code,
-          };
-        })(),
-      }));
-
-      // Ajustar totales: si es sellerId, acotar por límite del plan (y -1 si se excluye el actual)
-      let effectiveTotal = count || 0;
-      if (sellerId) {
-        const limit = getSellerLimit(sellerId);
-        const cap = Math.max(0, limit - (excludeProductId ? 1 : 0));
-        effectiveTotal = Math.min(effectiveTotal, cap);
-      }
-      const total = effectiveTotal;
-      const hasMore = from + withImages.length < total;
-
-      return NextResponse.json({
-        items: withImages,
-        page,
-        pageSize,
-        total,
-        hasMore,
-      });
+    // Si no hay candidatos, respuesta vacía
+    if (candidates.length === 0) {
+      return NextResponse.json({ items: [], page, pageSize, total: 0, hasMore: false });
     }
 
-    // Sin items
-    return NextResponse.json({ items: [], page, pageSize, total: 0, hasMore: false });
+    // Cargar perfiles de los vendedores para conocer los límites por plan
+    const userIdsAll = Array.from(new Set(candidates.map((p) => p.user_id)));
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, plan_code, first_name, last_name, city, province, company")
+      .in("id", userIdsAll);
+
+    const profileById = new Map<string, any>();
+    for (const prof of (profiles || []) as any[]) {
+      profileById.set(prof.id, prof);
+    }
+
+    const freeCodes = new Set(["gratis", "free", "basic"]);
+    const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
+    const deluxeCodes = new Set(["deluxe", "diamond"]);
+    const getSellerLimit = (uid: string) => {
+      const code = String(profileById.get(uid)?.plan_code || "").toLowerCase();
+      if (freeCodes.has(code)) return 1;
+      if (plusCodes.has(code)) return 15;
+      if (deluxeCodes.has(code)) return 30;
+      return 999999; // otros planes: sin límite práctico
+    };
+
+    // Aplicar límites por plan ANTES de paginar
+    let filteredAll = candidates as typeof candidates;
+    if (sellerId) {
+      // Página de vendedor
+      const sellerItems = candidates.filter((p) => p.user_id === sellerId && (!excludeProductId || p.id !== excludeProductId));
+      const limit = getSellerLimit(sellerId);
+      const allowed = Math.max(0, limit);
+      filteredAll = sellerItems.slice(0, allowed);
+    } else {
+      // Listado general: aplicar límite por vendedor según plan, manteniendo orden actual
+      const usedBySeller = new Map<string, number>();
+      const acc: typeof candidates = [] as any;
+      for (const p of candidates) {
+        const uid = p.user_id as string;
+        const limit = getSellerLimit(uid);
+        const used = usedBySeller.get(uid) ?? 0;
+        if (used >= limit) continue;
+        usedBySeller.set(uid, used + 1);
+        acc.push(p);
+      }
+      filteredAll = acc;
+    }
+
+    // Total visible tras aplicar límite por plan
+    const total = filteredAll.length;
+
+    // Determinar página actual del conjunto filtrado
+    const pageItems = filteredAll.slice(from, to + 1);
+
+    // Enriquecer solo los items de la página con imágenes y perfil
+    const ids = pageItems.map((p) => p.id);
+    const { data: images } = await supabase
+      .from("product_images")
+      .select("product_id,url,id")
+      .in("product_id", ids)
+      .order("id", { ascending: true });
+
+    const firstImageByProduct = new Map<string, string | null>();
+    if (images) {
+      for (const img of images as any[]) {
+        if (!firstImageByProduct.has(img.product_id)) {
+          firstImageByProduct.set(img.product_id, img.url);
+        }
+      }
+    }
+
+    const withImages = pageItems.map((p) => ({
+      ...p,
+      primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
+      profiles: (() => {
+        const prof = profileById.get(p.user_id) || {};
+        return {
+          first_name: prof.first_name,
+          last_name: prof.last_name,
+          city: prof.city,
+          province: prof.province,
+          company: prof.company,
+          plan_code: prof.plan_code,
+        };
+      })(),
+    }));
+
+    const hasMore = from + withImages.length < total;
+
+    return NextResponse.json({
+      items: withImages,
+      page,
+      pageSize,
+      total,
+      hasMore,
+    });
   } catch (e: any) {
     console.error("API products error:", e);
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
