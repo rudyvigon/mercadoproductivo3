@@ -140,6 +140,7 @@ export default function SiteHeader() {
   const navItems = [
     { href: "/", label: "Marketplace" },
     { href: "/vendedores", label: "Vendedores" },
+    { href: "/exportadores", label: "Exportadores" },
     { href: "/nosotros", label: "Nosotros" },
     { href: "/planes", label: "Planes" },
     { href: "/contacto", label: "Contacto" },

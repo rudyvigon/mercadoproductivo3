@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Star, MapPin } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 interface FeaturedProduct {
   id: string;
@@ -27,44 +26,23 @@ export default function FeaturedProductsCarousel() {
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
 
-  const supabase = createClient();
-
   // Cargar productos destacados
   useEffect(() => {
     async function fetchFeaturedProducts() {
       try {
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .not('featured_until', 'is', null)
-          .gte('featured_until', new Date().toISOString())
-          .order('featured_until', { ascending: false })
-          .limit(30);
-
-        if (error) throw error;
-
-        const productsWithImages = await Promise.all(
-          (data || []).map(async (product) => {
-            // Buscar primera imagen en product_images
-            let primaryImageUrl: string | null = null;
-            try {
-              const { data: imgRows } = await supabase
-                .from('product_images')
-                .select('url')
-                .eq('product_id', product.id)
-                .order('id', { ascending: true })
-                .limit(1);
-              primaryImageUrl = imgRows && imgRows.length > 0 ? (imgRows[0] as any).url : null;
-            } catch {}
-
-            return {
-              ...product,
-              primaryImageUrl,
-            };
-          })
-        );
-
-        setProducts(productsWithImages);
+        const params = new URLSearchParams({
+          page: "1",
+          pageSize: "30",
+          onlyFeatured: "true",
+          sortBy: "featured",
+        });
+        const res = await fetch(`/api/public/products?${params.toString()}`, { method: "GET", cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`API error ${res.status}`);
+        }
+        const json = await res.json();
+        const items: FeaturedProduct[] = Array.isArray(json?.items) ? json.items : [];
+        setProducts(items);
       } catch (error) {
         console.error('Error fetching featured products:', error);
       } finally {
@@ -73,7 +51,7 @@ export default function FeaturedProductsCarousel() {
     }
 
     fetchFeaturedProducts();
-  }, [supabase]);
+  }, []);
 
   // Detectar modo mobile para habilitar drag nativo y desactivar marquee
   useEffect(() => {

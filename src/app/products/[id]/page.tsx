@@ -86,6 +86,11 @@ export default async function PublicProductPage({ params }: { params: { id: stri
     console.error("Failed to fetch seller info", e);
   }
 
+  const planCode = String(seller?.plan_code || "").toLowerCase();
+  const isBasic = ["gratis", "free", "basic"].includes(planCode);
+  const displayName = isBasic ? "Usuario Básico" : (seller?.company || "Vendedor");
+  const avatarInitial = (isBasic ? "U" : (seller?.company?.[0] || "V")).toUpperCase();
+
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -152,11 +157,11 @@ export default async function PublicProductPage({ params }: { params: { id: stri
               <CardContent>
                 <div className="flex items-center gap-4">
                   <Avatar className="h-12 w-12">
-                    <AvatarImage src={seller.avatar_url || undefined} alt={seller.full_name || seller.company || "Vendedor"} />
-                    <AvatarFallback>{(seller.full_name?.[0] || seller.company?.[0] || "V").toUpperCase?.()}</AvatarFallback>
+                    <AvatarImage src={seller.avatar_url || undefined} alt={displayName} />
+                    <AvatarFallback>{avatarInitial}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-gray-900 truncate">{seller.company || seller.full_name || "Vendedor"}</div>
+                    <div className="font-semibold text-gray-900 truncate" data-testid="product-detail-seller-name">{displayName}</div>
                     <div className="text-sm text-gray-500 truncate">{seller.city || seller.province ? `${seller.city ?? ""}${seller.city && seller.province ? ", " : ""}${seller.province ?? ""}` : "Ubicación no especificada"}</div>
                   </div>
                   <Button asChild variant="secondary">

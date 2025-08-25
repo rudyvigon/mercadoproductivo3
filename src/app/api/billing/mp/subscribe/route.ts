@@ -16,6 +16,53 @@ function getBaseUrl() {
   return `${proto}://${host}`;
 }
 
+// Utilidades de reintento con backoff y timeout para llamadas HTTP
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  opts?: {
+    retries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    timeoutMs?: number;
+    retryOnStatuses?: number[];
+  },
+) {
+  const retries = opts?.retries ?? 3;
+  const baseDelayMs = opts?.baseDelayMs ?? 300;
+  const maxDelayMs = opts?.maxDelayMs ?? 2000;
+  const timeoutMs = opts?.timeoutMs ?? 8000;
+  const retryOnStatuses = opts?.retryOnStatuses ?? [408, 429, 500, 502, 503, 504];
+
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) return res;
+      if (!retryOnStatuses.includes(res.status) || attempt === retries) {
+        return res;
+      }
+      const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt) + Math.floor(Math.random() * 100);
+      await sleep(delay);
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err;
+      if (attempt === retries) throw err;
+      const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt) + Math.floor(Math.random() * 100);
+      await sleep(delay);
+    }
+  }
+  // Si llega aquí, re-lanzamos el último error
+  throw lastError ?? new Error("fetchWithRetry: fallo inesperado");
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createRouteClient();
@@ -98,13 +145,29 @@ export async function POST(req: Request) {
     // Token de MP (si existe). Para planes pagos es requerido; para cancelar en downgrade es opcional.
     const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 
+    // Determinar precio mensual del plan actual y tipo de cambio (upgrade/downgrade)
+    let currentMonthlyPrice: number | null = null;
+    if (profile?.plan_code) {
+      const { data: currentPlan } = await admin
+        .from("plans")
+        .select("code, price_monthly, price_monthly_cents")
+        .eq("code", profile.plan_code)
+        .maybeSingle();
+      const cpm = toNum((currentPlan as any)?.price_monthly);
+      const cpmc = toNum((currentPlan as any)?.price_monthly_cents);
+      currentMonthlyPrice = cpm != null ? cpm : (cpmc != null ? cpmc / 100 : null);
+    }
+    const hasAuthorizedCurrent = !!(profile as any)?.mp_preapproval_id && ((profile as any)?.mp_subscription_status === "authorized");
+    const isDowngrade = (currentMonthlyPrice != null) && (currentMonthlyPrice > priceMonthly);
+    const isUpgrade = profile?.plan_code ? (!isDowngrade && priceMonthly > (currentMonthlyPrice ?? 0)) : priceMonthly > 0;
+
     // Evitar reprocesar si el usuario ya tiene un cambio programado vigente (una vez por ciclo)
     // Bypass temporal para pruebas: si NODE_ENV !== 'production' o BILLING_BYPASS_PENDING_CHECK === 'true'
     const bypassPendingCheck = process.env.BILLING_BYPASS_PENDING_CHECK === "true" || process.env.NODE_ENV !== "production";
     if (!bypassPendingCheck && profile?.plan_pending_code && profile?.plan_pending_effective_at) {
       const pendingEff = new Date(profile.plan_pending_effective_at);
       const nowCheck = new Date();
-      if (!Number.isNaN(pendingEff.getTime()) && pendingEff > nowCheck) {
+      if (!Number.isNaN(pendingEff.getTime()) && pendingEff > nowCheck && !isUpgrade) {
         return NextResponse.json(
           {
             error: "PLAN_CHANGE_ALREADY_SCHEDULED",
@@ -162,14 +225,18 @@ export async function POST(req: Request) {
         if ((profile as any)?.mp_preapproval_id && MP_ACCESS_TOKEN) {
           try {
             const preId = (profile as any).mp_preapproval_id as string;
-            const cancelRes = await fetch(`https://api.mercadopago.com/preapproval/${preId}`, {
-              method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+            const cancelRes = await fetchWithRetry(
+              `https://api.mercadopago.com/preapproval/${preId}`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+                },
+                body: JSON.stringify({ status: "cancelled" }),
               },
-              body: JSON.stringify({ status: "cancelled" }),
-            });
+              { retries: 3, baseDelayMs: 300, maxDelayMs: 2000, timeoutMs: 8000, retryOnStatuses: [408, 429, 500, 502, 503, 504] },
+            );
             if (cancelRes.ok) {
               await admin
                 .from("profiles")
@@ -196,40 +263,12 @@ export async function POST(req: Request) {
       }
     }
 
-    // Detectar downgrade con suscripción vigente autorizada: no crear preapproval ni redirigir a MP
-    // Cargar precio mensual del plan actual para comparar
-    let currentMonthlyPrice: number | null = null;
-    if (profile?.plan_code) {
-      const { data: currentPlan } = await admin
-        .from("plans")
-        .select("code, price_monthly, price_monthly_cents")
-        .eq("code", profile.plan_code)
-        .maybeSingle();
-      const cpm = toNum((currentPlan as any)?.price_monthly);
-      const cpmc = toNum((currentPlan as any)?.price_monthly_cents);
-      currentMonthlyPrice = cpm != null ? cpm : (cpmc != null ? cpmc / 100 : null);
-    }
-    const hasAuthorizedCurrent = !!(profile as any)?.mp_preapproval_id && ((profile as any)?.mp_subscription_status === "authorized");
-    const isDowngrade = (currentMonthlyPrice != null) && (currentMonthlyPrice > priceMonthly);
-
-    if (hasAuthorizedCurrent && isDowngrade) {
-      // Programar el cambio a fin de ciclo, sin crear nuevo preapproval aún
-      await admin
-        .from("profiles")
-        .update({
-          plan_pending_code: plan.code,
-          plan_pending_effective_at: effectiveAt.toISOString(),
-        })
-        .eq("id", user.id);
-      try {
-        await admin.from("billing_events").insert({
-          user_id: user.id,
-          kind: "plan_downgrade_scheduled_no_checkout",
-          payload: { plan_code: plan.code, effective_at: effectiveAt.toISOString(), current_monthly_price: currentMonthlyPrice, target_monthly_price: priceMonthly, interval },
-        } as any);
-      } catch {}
-      return NextResponse.json({ redirect_url: successUrl + "?scheduled=1" });
-    }
+    // Detectar downgrade/upgrade: variables calculadas más arriba (currentMonthlyPrice, hasAuthorizedCurrent, isDowngrade, isUpgrade).
+    // Nota: si existe una suscripción vigente autorizada y estamos ante un downgrade,
+    // programamos el cambio a fin de ciclo PERO igualmente procedemos a crear un nuevo
+    // preapproval para el plan objetivo. El webhook pausará ese nuevo preapproval
+    // (para evitar cobros en paralelo) y luego en /api/billing/mp/post-apply se
+    // reanudará al aplicar el cambio efectivo, cancelando el anterior.
 
     // Plan pago: crear preapproval en Mercado Pago
     if (!MP_ACCESS_TOKEN) {
@@ -259,14 +298,26 @@ export async function POST(req: Request) {
       },
     };
 
-    const mpRes = await fetch("https://api.mercadopago.com/preapproval", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
-      },
-      body: JSON.stringify(preapprovalBody),
-    });
+    let mpRes: Response;
+    try {
+      mpRes = await fetchWithRetry(
+        "https://api.mercadopago.com/preapproval",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+          },
+          body: JSON.stringify(preapprovalBody),
+        },
+        { retries: 3, baseDelayMs: 300, maxDelayMs: 2000, timeoutMs: 8000, retryOnStatuses: [408, 429, 500, 502, 503, 504] },
+      );
+    } catch (err: any) {
+      return NextResponse.json(
+        { error: "MP_PREAPPROVAL_FAILED", details: err?.message || String(err) },
+        { status: 502 },
+      );
+    }
 
     if (!mpRes.ok) {
       const txt = await mpRes.text().catch(() => "");
@@ -278,19 +329,35 @@ export async function POST(req: Request) {
     const initPoint = (pre?.init_point || pre?.sandbox_init_point) as string | undefined;
     const status = (pre?.status as string | undefined) || "pending";
 
-    // Programar cambio y guardar datos de MP
-    // Si ya existe una suscripción autorizada, NO sobreescribimos mp_preapproval_id/mp_subscription_status todavía,
-    // para poder identificar y cancelar correctamente el preapproval anterior en upgrades
-    // y pausar el nuevo en downgrades sin perder la referencia del actual.
-    // Nota: hasAuthorizedCurrent ya fue calculado arriba si aplica downgrade.
+    // Programar/omitir scheduling y guardar datos de MP según tipo de cambio
+    // Si existe una suscripción autorizada, NO sobreescribimos mp_preapproval_id/mp_subscription_status todavía
+    // para poder cancelar correctamente el preapproval anterior en upgrades y pausar el nuevo en downgrades.
     const updatePayload: Record<string, any> = {
-      plan_pending_code: plan.code,
-      plan_pending_effective_at: effectiveAt.toISOString(),
       mp_payer_email: payerEmail,
     };
-    if (!hasAuthorizedCurrent) {
-      updatePayload.mp_preapproval_id = preapprovalId ?? null;
-      updatePayload.mp_subscription_status = status;
+    if (isDowngrade) {
+      updatePayload.plan_pending_code = plan.code;
+      updatePayload.plan_pending_effective_at = effectiveAt.toISOString();
+      if (!hasAuthorizedCurrent) {
+        updatePayload.mp_preapproval_id = preapprovalId ?? null;
+        updatePayload.mp_subscription_status = status;
+      }
+    } else if (isUpgrade) {
+      // Upgrade: no programar pendiente; el webhook aplica inmediato al autorizar
+      updatePayload.plan_pending_code = null;
+      updatePayload.plan_pending_effective_at = null;
+      if (!hasAuthorizedCurrent) {
+        updatePayload.mp_preapproval_id = preapprovalId ?? null;
+        updatePayload.mp_subscription_status = status;
+      }
+    } else {
+      // Cambio lateral: mantener scheduling por defecto
+      updatePayload.plan_pending_code = plan.code;
+      updatePayload.plan_pending_effective_at = effectiveAt.toISOString();
+      if (!hasAuthorizedCurrent) {
+        updatePayload.mp_preapproval_id = preapprovalId ?? null;
+        updatePayload.mp_subscription_status = status;
+      }
     }
     await admin
       .from("profiles")

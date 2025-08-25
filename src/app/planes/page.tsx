@@ -5,7 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { headers } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { Check, X, Image as ImageIcon, Package as PackageIcon, Coins, Sparkles, Infinity as InfinityIcon } from "lucide-react";
+import { SubscribeButton } from "@/components/billing/subscribe-button";
 
 export const metadata: Metadata = {
   title: "Planes de Suscripción | Mercado Productivo",
@@ -95,7 +97,45 @@ const isDeluxePlan = (p: PlanRow) => {
   return code.includes("deluxe") || name.includes("deluxe");
 };
 
+// Normalizar tier del plan mostrado en tarjeta
+const getPlanTier = (p: PlanRow): "gratis" | "plus" | "deluxe" | "other" => {
+  const code = (p.code || "").toLowerCase();
+  const name = (p.name || "").toLowerCase();
+  if (isFreePlan(p) || code.includes("gratis")) return "gratis";
+  if (isDeluxePlan(p)) return "deluxe";
+  if (code.includes("plus") || name.includes("plus") || code.includes("enterprise") || code.includes("premium") || code.includes("pro")) return "plus";
+  return "other";
+};
+
 export default async function PlanesPage({ searchParams }: { searchParams?: { interval?: string } }) {
+  // Estado de sesión y plan actual
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  let userPlanCodeLower = "";
+  if (user) {
+    const metaPlan = (user.user_metadata?.plan || user.user_metadata?.plan_code || "").toString();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("plan_code")
+      .eq("id", user.id)
+      .maybeSingle();
+    userPlanCodeLower = ((profile?.plan_code || metaPlan || "") as string).toLowerCase();
+  }
+  const freeCodes = new Set(["gratis", "free", "basic"]);
+  const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
+  const deluxeCodes = new Set(["deluxe", "diamond"]);
+  const currentTier = userPlanCodeLower
+    ? freeCodes.has(userPlanCodeLower)
+      ? "gratis"
+      : plusCodes.has(userPlanCodeLower)
+      ? "plus"
+      : deluxeCodes.has(userPlanCodeLower)
+      ? "deluxe"
+      : "other"
+    : "";
+
   // Consumir el endpoint interno que usa Service Role
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -173,11 +213,13 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
           const { monthly, yearly, currency } = computePrice(p);
           const monthlyFmt = monthly != null ? formatCurrency(monthly, currency) : null;
           const yearlyFmt = yearly != null ? formatCurrency(yearly, currency) : null;
-          const isPopular = code === "plus" || /plus/i.test(label); // Heurística simple si no hay flag en BD
+          const isPopular = isDeluxePlan(p); // Deluxe como plan destacado
+          const planTier = getPlanTier(p);
+          const isCurrentPlan = Boolean(user && currentTier && planTier !== "other" && planTier === currentTier);
           const isFirst = idx === 0;
           const isSecond = idx === 1;
           const isThird = idx === 2;
-          const btnVariant = isThird ? "default" : "outline";
+          const btnVariant = isPopular ? "default" : "outline";
           const btnClass =
             "w-full " +
             (isFirst
@@ -280,25 +322,44 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
                 </div>
               </CardContent>
               <CardFooter className="mt-auto">
-                {isThird ? (
-                  <Button
-                    asChild
-                    className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
-                    variant="default"
-                  >
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}&interval=${interval}`} prefetch={false}>
+                {user ? (
+                  isCurrentPlan ? (
+                    <Button className="w-full" variant={isPopular ? "default" : "outline"} disabled aria-disabled>
+                      Plan actual
+                    </Button>
+                  ) : (
+                    isPopular ? (
+                      <SubscribeButton
+                        code={p.code}
+                        interval={interval as "monthly" | "yearly"}
+                        className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
+                        variant="default"
+                      >
+                        <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]"></span>
+                        <span>Cambia a {label}</span>
+                      </SubscribeButton>
+                    ) : (
+                      <SubscribeButton code={p.code} interval={interval as "monthly" | "yearly"} className={btnClass} variant={btnVariant as any}>
+                        Cambia a {label}
+                      </SubscribeButton>
+                    )
+                  )
+                ) : (
+                  isPopular ? (
+                    <SubscribeButton
+                      code={p.code}
+                      interval={interval as "monthly" | "yearly"}
+                      className="relative overflow-hidden group w-full bg-orange-500 text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
+                      variant="default"
+                    >
                       <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]"></span>
                       <span>Comienza con {label}</span>
-                    </Link>
-                  </Button>
-                ) : (
-                  <Button
-                    asChild
-                    className={btnClass}
-                    variant={btnVariant}
-                  >
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}&interval=${interval}`} prefetch={false}>Comienza con {label}</Link>
-                  </Button>
+                    </SubscribeButton>
+                  ) : (
+                    <SubscribeButton code={p.code} interval={interval as "monthly" | "yearly"} className={btnClass} variant={btnVariant as any}>
+                      Comienza con {label}
+                    </SubscribeButton>
+                  )
                 )}
               </CardFooter>
             </Card>
@@ -329,11 +390,14 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
               <thead className="bg-muted/50">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Característica</th>
-                  {plans.map((p) => (
-                    <th key={`h-${p.code}`} className="px-4 py-3 text-left font-medium">
-                      {p.name || p.code}
-                    </th>
-                  ))}
+                  {plans.map((p) => {
+                    const deluxe = isDeluxePlan(p);
+                    return (
+                      <th key={`h-${p.code}`} className={deluxe ? "px-4 py-3 text-left font-medium text-primary" : "px-4 py-3 text-left font-medium"}>
+                        {p.name || p.code}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -341,8 +405,9 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
                   <td className="px-4 py-3 text-muted-foreground">Precio mensual</td>
                   {plans.map((p) => {
                     const { monthly, currency } = computePrice(p);
+                    const deluxe = isDeluxePlan(p);
                     return (
-                      <td key={`r-price-${p.code}`} className="px-4 py-3">
+                      <td key={`r-price-${p.code}`} className={deluxe ? "px-4 py-3 text-primary" : "px-4 py-3"}>
                         {monthly == null ? "" : monthly === 0 ? "Gratis" : formatCurrency(monthly, currency)}
                       </td>
                     );
@@ -351,46 +416,61 @@ export default async function PlanesPage({ searchParams }: { searchParams?: { in
                   <td className="px-4 py-3 text-muted-foreground">Precio Anual</td>
                   {plans.map((p) => {
                     const { yearly, currency } = computePrice(p);
+                    const deluxe = isDeluxePlan(p);
                     return (
                       <td key={`r-price-${p.code}`} className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 text-primary">{yearly == null ? "" : yearly === 0 ? "Gratis" : formatCurrency(yearly, currency)}</span>
+                        <span className={deluxe ? "inline-flex items-center gap-1 text-primary" : "inline-flex items-center gap-1"}>{yearly == null ? "" : yearly === 0 ? "Gratis" : formatCurrency(yearly, currency)}</span>
                       </td>
                     );
                   })}
                 </tr>
                 <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Productos máximos</td>
-                  {plans.map((p) => (
-                    <td key={`r-prod-${p.code}`} className="px-4 py-3">
-                      {p.max_products ? p.max_products : (
-                        <span className="inline-flex items-center gap-1"><InfinityIcon className="h-4 w-4" /> Ilimitados</span>
-                      )}
-                    </td>
-                  ))}
+                  {plans.map((p) => {
+                    const deluxe = isDeluxePlan(p);
+                    return (
+                      <td key={`r-prod-${p.code}`} className={deluxe ? "px-4 py-3 text-primary" : "px-4 py-3"}>
+                        {p.max_products ? p.max_products : (
+                          <span className="inline-flex items-center gap-1"><InfinityIcon className={deluxe ? "h-4 w-4 text-primary" : "h-4 w-4"} /> Ilimitados</span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
                 <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Imágenes por producto</td>
-                  {plans.map((p) => (
-                    <td key={`r-img-${p.code}`} className="px-4 py-3">{p.max_images_per_product ?? "—"}</td>
-                  ))}
+                  {plans.map((p) => {
+                    const deluxe = isDeluxePlan(p);
+                    return (
+                      <td key={`r-img-${p.code}`} className={deluxe ? "px-4 py-3 text-primary" : "px-4 py-3"}>{p.max_images_per_product ?? "—"}</td>
+                    );
+                  })}
                 </tr>
                 <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Créditos mensuales</td>
-                  {plans.map((p) => (
-                    <td key={`r-cred-${p.code}`} className="px-4 py-3">{p.credits_monthly ?? 0}</td>
-                  ))}
+                  {plans.map((p) => {
+                    const deluxe = isDeluxePlan(p);
+                    return (
+                      <td key={`r-cred-${p.code}`} className={deluxe ? "px-4 py-3 text-primary" : "px-4 py-3"}>{p.credits_monthly ?? 0}</td>
+                    );
+                  })}
                 </tr>
                 <tr className="border-t odd:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">Puede destacar</td>
-                  {plans.map((p) => (
-                    <td key={`r-feat-${p.code}`} className="px-4 py-3">
-                      {p.can_feature ? (
-                        <span className="inline-flex items-center gap-1 text-primary"><Check className="h-4 w-4" /> Sí{typeof p.feature_cost === "number" ? ` (costo ${p.feature_cost})` : ""}</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-primary"><X className="h-4 w-4" /> No</span>
-                      )}
-                    </td>
-                  ))}
+                  {plans.map((p) => {
+                    const deluxe = isDeluxePlan(p);
+                    const wrap = deluxe ? "inline-flex items-center gap-1 text-primary" : "inline-flex items-center gap-1";
+                    const icon = deluxe ? "h-4 w-4 text-primary" : "h-4 w-4";
+                    return (
+                      <td key={`r-feat-${p.code}`} className="px-4 py-3">
+                        {p.can_feature ? (
+                          <span className={wrap}><Check className={icon} /> Sí{typeof p.feature_cost === "number" ? ` (costo ${p.feature_cost})` : ""}</span>
+                        ) : (
+                          <span className={wrap}><X className={icon} /> No</span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>

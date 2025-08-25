@@ -1,7 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 import { UsageRadial, CountdownUntil } from "@/components/dashboard/kpi-charts";
 import PlanBadge from "@/components/badges/plan-badge";
 
@@ -114,6 +118,19 @@ export default async function Page() {
   const creditsMonthly = plan?.credits_monthly ?? 0;
   const maxProducts = plan?.max_products ?? null;
 
+  // Límite de visibilidad pública por plan (enforcement del endpoint público)
+  const freeCodes = new Set(["gratis", "free", "basic"]);
+  const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
+  const deluxeCodes = new Set(["deluxe", "diamond"]);
+  const planVisibleLimit = freeCodes.has(planCodeLower)
+    ? 1
+    : plusCodes.has(planCodeLower)
+    ? 15
+    : deluxeCodes.has(planCodeLower)
+    ? 30
+    : (maxProducts ?? null);
+  const exceedsVisible = typeof productsCount === "number" && planVisibleLimit != null && productsCount > planVisibleLimit;
+
   // (Gráfico de actividad removido)
 
   // Expiración estimada: 1 mes desde activación; fallback a updated_at cuando haya plan
@@ -173,7 +190,7 @@ export default async function Page() {
             <CardTitle className="text-lg">Métricas de uso</CardTitle>
             <CardDescription>Resumen del mes actual</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm">
+          <CardContent className="text-sm space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
               <div className="rounded-md border p-4">
                 <UsageRadial
@@ -220,6 +237,21 @@ export default async function Page() {
                 </div>
               )}
             </div>
+            {exceedsVisible && (
+              <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Alerta: visibilidad limitada por tu plan</AlertTitle>
+                <AlertDescription>
+                  Actualmente tienes {productsCount} producto(s), pero tu plan permite mostrar hasta {planVisibleLimit} en listados públicos.
+                  Para aumentar tu visibilidad, considera actualizar tu plan.
+                  <div className="mt-2">
+                    <Button asChild size="sm" variant="outline" className="border-amber-300 text-amber-900 hover:bg-amber-100">
+                      <Link href="/planes">Ver planes</Link>
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
             {/* Gráfico de líneas removido */}
           </CardContent>
         </Card>

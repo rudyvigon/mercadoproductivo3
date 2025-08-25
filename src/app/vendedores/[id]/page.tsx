@@ -11,7 +11,11 @@ import PlanBadge from "@/components/badges/plan-badge";
 
 
 function sellerDisplayName(row: any) {
-  return (row?.company || row?.full_name || `${row?.first_name ?? ""} ${row?.last_name ?? ""}`.trim() || "Vendedor").toString();
+  const code = String(row?.plan_code || "").toLowerCase();
+  const isBasic = ["gratis", "free", "basic"].includes(code);
+  if (isBasic) return "Usuario Básico";
+  if (row?.company) return String(row.company);
+  return "Vendedor";
 }
 
 function formatDate(date?: string | null) {
@@ -54,7 +58,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
                 <AvatarFallback>{sellerDisplayName(profile)?.[0]?.toUpperCase?.() || "V"}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">{sellerDisplayName(profile)}</h1>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate" data-testid="vendor-public-name">{sellerDisplayName(profile)}</h1>
                 <div className="mt-2 flex items-center gap-2">
                   <PlanBadge planLabel={profile.plan_label} planCode={profile.plan_code} />
                 </div>

@@ -41,6 +41,7 @@ interface Product {
     city?: string;
     province?: string;
     company?: string;
+    plan_code?: string;
   };
   primaryImageUrl?: string | null;
 }
@@ -230,10 +231,10 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
 
   const getSellerName = (product: Product) => {
     const profile = product.profiles;
+    const code = String(profile?.plan_code || '').toLowerCase();
+    const isBasic = ["gratis", "free", "basic"].includes(code);
+    if (isBasic) return "Usuario Básico";
     if (profile?.company) return profile.company;
-    if (profile?.first_name && profile?.last_name) {
-      return `${profile.first_name} ${profile.last_name}`;
-    }
     return 'Vendedor';
   };
 
@@ -393,7 +394,7 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
                   variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"
                 ) }>
                   <User className="h-4 w-4 mr-1" />
-                  <span className="truncate">{getSellerName(product)}</span>
+                  <span className="truncate" data-testid={`product-card-seller-${product.id}`}>{getSellerName(product)}</span>
                 </div>
                 <div className={cn("flex items-center text-gray-500",
                   variant === "compact" ? "text-xs" : variant === "comfortable" ? "text-sm" : "text-sm"

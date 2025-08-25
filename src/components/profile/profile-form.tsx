@@ -13,6 +13,7 @@ import { toSpanishErrorMessage } from "@/lib/i18n/errors";
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from "next/image";
 import { buildSafeStoragePath } from "@/lib/images";
+import { Switch } from "@/components/ui/switch";
 
 function isValidDniCuit(raw: string): boolean {
   const digits = (raw || "").replace(/\D/g, "");
@@ -51,6 +52,8 @@ const profileSchema = z.object({
   city: z.string().min(1, "Requerido"),
   province: z.string().min(1, "Requerido"),
   cp: z.string().min(1, "Requerido"),
+  // Campo Deluxe
+  exportador: z.boolean().optional().default(false),
 });
 
 export type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -67,6 +70,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const existingPlanCodeRef = useRef<string | null>(null);
+  const exportadorColumnExistsRef = useRef<boolean>(true);
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     mode: "onChange",
@@ -81,6 +85,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       city: "",
       province: "",
       cp: "",
+      exportador: false,
     },
   });
 
@@ -203,11 +208,26 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         setLoading(false);
         return;
       }
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url")
-        .eq("id", user.id)
-        .single();
+      let data: any = null;
+      let error: any = null;
+      {
+        const res = await supabase
+          .from("profiles")
+          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url, exportador")
+          .eq("id", user.id)
+          .single();
+        data = res.data; error = res.error;
+      }
+      // Si falla por columna inexistente, reintentar sin 'exportador'
+      if (error && /exportador|column|does not exist/i.test(error?.message || "")) {
+        exportadorColumnExistsRef.current = false;
+        const res2 = await supabase
+          .from("profiles")
+          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url")
+          .eq("id", user.id)
+          .single();
+        data = res2.data; error = res2.error;
+      }
       if (!mounted) return;
       if (error && error.code !== "PGRST116") {
         console.error(error);
@@ -223,6 +243,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         city: (data?.city ?? ""),
         province: provinceCanonical(data?.province ?? ""),
         cp: data?.postal_code ?? "",
+        exportador: exportadorColumnExistsRef.current ? Boolean((data as any)?.exportador) || false : false,
       });
       existingPlanCodeRef.current = (data?.plan_code ?? null) as any;
       setAvatarUrl(data?.avatar_url ?? null);
@@ -316,6 +337,12 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         postal_code: values.cp,
         updated_at: new Date().toISOString(),
       };
+      // Persistir exportador sólo si el plan es Deluxe (o sinónimos)
+      const planLower = (existingPlanCodeRef.current || "").toLowerCase();
+      const isDeluxe = planLower === "deluxe" || planLower === "premium" || planLower === "pro";
+      if (exportadorColumnExistsRef.current) {
+        payload.exportador = isDeluxe ? Boolean(values.exportador) : false;
+      }
       // Si es vendedor (normalizado) y aún no tiene plan_code, asignar 'free' por defecto
       const roleRaw = (((user.user_metadata as any)?.role) || ((user.user_metadata as any)?.user_type) || "") as string;
       const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
@@ -405,6 +432,8 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   }
 
   const allDisabled = disabled || saving;
+  const planCodeLower = (existingPlanCodeRef.current || "").toLowerCase();
+  const canToggleExportador = exportadorColumnExistsRef.current && (planCodeLower === "deluxe" || planCodeLower === "premium" || planCodeLower === "pro");
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
@@ -651,6 +680,32 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
           )}
         </div>
       </div>
+
+      {/* Switch Exportador (sólo visible para plan Deluxe) */}
+      {canToggleExportador && (
+        <div className="rounded-md border p-4 bg-muted/30">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label className="text-sm">¿Mostrarse como Exportador?</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Activa esta opción para aparecer en el listado público de exportadores. Requiere plan Deluxe.
+              </p>
+            </div>
+            <Controller
+              name="exportador"
+              control={form.control}
+              render={({ field }) => (
+                <Switch
+                  checked={Boolean(field.value)}
+                  onCheckedChange={field.onChange}
+                  disabled={allDisabled}
+                  aria-invalid={undefined}
+                />
+              )}
+            />
+          </div>
+        </div>
+      )}
       {!hideInternalSubmit && (
         <Button type="submit" disabled={saving} className="w-full">
           {saving ? "Guardando..." : "Guardar cambios"}

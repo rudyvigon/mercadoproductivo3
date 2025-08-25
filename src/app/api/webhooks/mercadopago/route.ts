@@ -88,6 +88,61 @@ async function processPreapproval(preapprovalId: string) {
       profile = p as any;
     }
 
+    // Sincronizar estado de suscripción cuando el preapproval coincide con el actual del perfil
+    if (userId && profile?.mp_preapproval_id && profile.mp_preapproval_id === id && status) {
+      try {
+        await admin
+          .from("profiles")
+          .update({ mp_subscription_status: status })
+          .eq("id", userId);
+      } catch {}
+    }
+
+    // Manejar cancelación originada en MP: programar cambio a plan gratis al fin de ciclo
+    if (userId && status === "cancelled") {
+      try {
+        // Si ya hay un cambio programado, no sobreescribir
+        const alreadyPending = !!(profile?.plan_pending_code);
+        if (!alreadyPending) {
+          // Buscar plan gratis (price 0) o código 'free'/'gratis'
+          const { data: freePlan } = await admin
+            .from("plans")
+            .select("code, price_monthly, price_monthly_cents")
+            .or("code.eq.free,code.eq.gratis,price_monthly.eq.0,price_monthly_cents.eq.0")
+            .limit(1)
+            .maybeSingle();
+          const freeCode = (freePlan as any)?.code || "free";
+
+          // Calcular fecha efectiva al fin del ciclo si existe; caso contrario, inmediata
+          let effectiveAt = new Date();
+          if (profile?.plan_renews_at) {
+            const r = new Date(profile.plan_renews_at);
+            if (!Number.isNaN(r.getTime()) && r > new Date()) effectiveAt = r;
+          } else if (profile?.plan_activated_at) {
+            const a = new Date(profile.plan_activated_at);
+            if (!Number.isNaN(a.getTime())) {
+              const d = new Date(a);
+              d.setMonth(d.getMonth() + 1);
+              if (d > new Date()) effectiveAt = d;
+            }
+          }
+
+          await admin
+            .from("profiles")
+            .update({ plan_pending_code: freeCode, plan_pending_effective_at: effectiveAt.toISOString(), mp_subscription_status: status })
+            .eq("id", userId);
+
+          try {
+            await admin.from("billing_events").insert({
+              user_id: userId,
+              kind: "subscription_cancelled_by_mp",
+              payload: { preapproval_id: id, plan_pending_code: freeCode, effective_at: effectiveAt.toISOString() },
+            } as any);
+          } catch {}
+        }
+      } catch {}
+    }
+
     // Evitar sobrescribir el preapproval actual del usuario en downgrades.
     // Sólo usar fallback por preapproval_id cuando no tengamos userId.
     if (!userId) {
@@ -360,6 +415,38 @@ async function processAuthorizedPayment(paymentId: string) {
         .update({ plan_renews_at: nextRenewsAt, mp_subscription_status: "authorized" })
         .eq("mp_preapproval_id", preapprovalId);
     }
+
+    // 6.1) Reacreditar créditos mensuales al renovarse la suscripción
+    try {
+      let targetUserId: string | null = userId;
+      if (!targetUserId && preapprovalId) {
+        const { data: prof } = await admin
+          .from("profiles")
+          .select("id")
+          .eq("mp_preapproval_id", preapprovalId)
+          .maybeSingle();
+        targetUserId = (prof as any)?.id || null;
+      }
+      if (targetUserId) {
+        const { data: credited, error: refillError } = await admin.rpc("refill_monthly_credits", { p_user: targetUserId });
+        try {
+          await admin.from("billing_events").insert({
+            user_id: targetUserId,
+            kind: "credits_refilled_on_renewal",
+            payload: { payment_id: paymentId, preapproval_id: preapprovalId, credited: credited ?? null },
+          } as any);
+        } catch {}
+        if (refillError) {
+          try {
+            await admin.from("billing_events").insert({
+              user_id: targetUserId,
+              kind: "credits_refill_error",
+              payload: { payment_id: paymentId, preapproval_id: preapprovalId, error: (refillError as any)?.message || null },
+            } as any);
+          } catch {}
+        }
+      }
+    } catch {}
 
     // 7) Registrar evento de renovación
     try {

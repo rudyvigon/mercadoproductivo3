@@ -4,8 +4,10 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { headers } from "next/headers";
 import PlanBadge from "@/components/badges/plan-badge";
+import CancelSubscriptionButton from "./cancel-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -38,11 +40,17 @@ export default async function PlanPage({ searchParams }: Props) {
   // Perfil + plan del usuario
   let { data: profile } = await supabase
     .from("profiles")
-    .select("plan_code, role_code, updated_at, plan_activated_at, plan_renews_at, plan_pending_code, plan_pending_effective_at, mp_subscription_status, mp_preapproval_id")
+    .select("plan_code, role_code, updated_at, plan_activated_at, plan_renews_at, plan_pending_code, plan_pending_effective_at, mp_subscription_status, mp_preapproval_id, credits_balance")
     .eq("id", user.id)
     .single();
 
   let didApplyPending = false;
+
+  // Mostrar mensaje de éxito cuando venimos de una cancelación correcta
+  const cancelParam = getParam(searchParams?.cancel);
+  const showCancelSuccess = cancelParam === "1";
+  const mpParam = getParam(searchParams?.mp);
+  const showMpWarning = showCancelSuccess && mpParam === "0";
 
   // Si hay un cambio programado vencido, aplicarlo de forma perezosa
   if (profile?.plan_pending_code && profile?.plan_pending_effective_at) {
@@ -116,6 +124,7 @@ export default async function PlanPage({ searchParams }: Props) {
     .maybeSingle();
 
   const creditsUsed = usage?.credits_used ?? 0;
+  const creditsBalance = (profile as any)?.credits_balance ?? 0;
 
   const maxProducts = plan?.max_products ?? null;
   const creditsMonthly = plan?.credits_monthly ?? 0;
@@ -189,6 +198,24 @@ export default async function PlanPage({ searchParams }: Props) {
         </div>
       </div>
 
+      {showCancelSuccess && (
+        <Alert className="border-green-200 bg-green-50 text-green-800">
+          <AlertTitle>Cancelación programada</AlertTitle>
+          <AlertDescription>
+            Tu suscripción fue cancelada correctamente. Tu plan cambiará a <span className="font-medium">Básico</span> el {formatDate((profile as any)?.plan_pending_effective_at)}. Hasta entonces, mantendrás los beneficios del plan actual.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {showMpWarning && (
+        <Alert className="border-yellow-200 bg-yellow-50 text-yellow-900">
+          <AlertTitle>Atención: verificación con Mercado Pago</AlertTitle>
+          <AlertDescription>
+            Detectamos que no pudimos confirmar la cancelación en Mercado Pago. Por favor verifica tu método de pago o vuelve a intentar más tarde. Si el problema persiste, contáctanos para evitar cargos recurrentes.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -221,6 +248,14 @@ export default async function PlanPage({ searchParams }: Props) {
                 <div className="font-medium text-muted-foreground">Créditos no disponibles en Plan Básico</div>
               ) : (
                 <div className="font-medium">{creditsUsed}{creditsMonthly ? ` / ${creditsMonthly}` : ""}</div>
+              )}
+            </div>
+            <div className="rounded-md border p-4">
+              <div className="text-muted-foreground">Saldo de créditos</div>
+              {isBasicPlan || !creditsMonthly ? (
+                <div className="font-medium text-muted-foreground">No disponible</div>
+              ) : (
+                <div className="font-medium">{creditsBalance}</div>
               )}
             </div>
             {/* Tarjeta de ofertas removida */}
@@ -264,6 +299,12 @@ export default async function PlanPage({ searchParams }: Props) {
               </div>
             </div>
           )}
+
+          {isPlusOrDeluxe && mpStatus !== "cancelled" && (
+            <div className="flex items-center justify-start pt-1">
+              <CancelSubscriptionButton disabled={hasPending} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -286,11 +327,17 @@ export default async function PlanPage({ searchParams }: Props) {
                     <div className="font-medium">{label}</div>
                     <div className="text-xs text-muted-foreground">{code}</div>
                   </div>
-                  <Button asChild size="sm" variant={isDisabled ? "secondary" : "default"} disabled={isDisabled}>
-                    <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}${hasInterval ? `&interval=${interval}` : ""}`} prefetch={false}>
-                      {isCurrent ? "Plan actual" : hasPending ? "Cambio pendiente" : "Cambiar / Contratar"}
-                    </Link>
-                  </Button>
+                  {isDisabled ? (
+                    <Button size="sm" variant="secondary" disabled>
+                      {isCurrent ? "Plan actual" : "Cambio pendiente"}
+                    </Button>
+                  ) : (
+                    <Button asChild size="sm" variant="default">
+                      <Link href={`/dashboard/plan/subscribe?code=${encodeURIComponent(p.code)}${hasInterval ? `&interval=${interval}` : ""}`} prefetch={false}>
+                        {"Cambiar / Contratar"}
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               );
             })}

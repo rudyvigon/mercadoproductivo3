@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { DragEvent, KeyboardEvent, ClipboardEvent, FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -55,7 +55,11 @@ const AR_PROVINCES = [
 
 const productSchema = z.object({
   title: z.string().min(3, "Mínimo 3 caracteres").max(20, "Máximo 20 caracteres"),
-  description: z.string().min(10, "Mínimo 10 caracteres").max(250, "Máximo 250 caracteres"),
+  description: z
+    .string()
+    .min(10, "Mínimo 10 caracteres")
+    .max(250, "Máximo 250 caracteres")
+    .refine((v) => !/[0-9]/.test(v), { message: "La descripción no puede contener números" }),
   category: z.string().min(1, "Selecciona una categoría"),
   price: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa un precio válido" }),
   quantity_value: numberFromInput.refine((v) => !Number.isNaN(v) && v > 0, { message: "Ingresa una cantidad válida" }),
@@ -86,6 +90,9 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
   const [loadingCities, setLoadingCities] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [maxProducts, setMaxProducts] = useState<number | null>(null);
+  const [productsCount, setProductsCount] = useState<number>(0);
+  const limitReached = useMemo(() => typeof maxProducts === 'number' && productsCount >= maxProducts, [maxProducts, productsCount]);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -197,6 +204,44 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
     })();
   }, [supabase]);
 
+  // Resolver límite de productos por plan y conteo actual
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // Conteo actual de productos
+        const { count } = await supabase
+          .from('products')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        setProductsCount(count ?? 0);
+
+        // Plan y máximo de productos
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('plan_code')
+          .eq('id', user.id)
+          .single();
+        const planCode = (profile?.plan_code || '').toString();
+        if (!planCode) {
+          setMaxProducts(null);
+          return;
+        }
+        const { data: plan } = await supabase
+          .from('plans')
+          .select('max_products')
+          .eq('code', planCode)
+          .maybeSingle();
+        const mp = (plan as any)?.max_products;
+        setMaxProducts(typeof mp === 'number' ? mp : (mp != null ? Number(mp) : null));
+      } catch {
+        setMaxProducts(null);
+      }
+    })();
+  }, [supabase]);
+
   // Cargar categorías desde tabla `categories` (fallback a products.category)
   useEffect(() => {
     (async () => {
@@ -251,6 +296,41 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       ? "border-red-500 focus-visible:ring-red-500"
       : undefined;
   }
+
+  // Handlers para bloquear números en la descripción
+  const handleDescriptionKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key && e.key.length === 1 && /[0-9]/.test(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleDescriptionBeforeInput = (e: FormEvent<HTMLTextAreaElement>) => {
+    // e.nativeEvent.data contiene el carácter a insertar (en la mayoría de navegadores)
+    const data = (e as any)?.nativeEvent?.data as string | null;
+    if (data && /[0-9]/.test(data)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleDescriptionPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (/[0-9]/.test(text)) {
+      e.preventDefault();
+      const sanitized = text.replace(/[0-9]/g, "");
+      const el = e.target as HTMLTextAreaElement;
+      const prev = el.value || "";
+      const start = el.selectionStart ?? prev.length;
+      const end = el.selectionEnd ?? prev.length;
+      const next = prev.slice(0, start) + sanitized + prev.slice(end);
+      form.setValue("description", next, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      // Restaurar cursor
+      requestAnimationFrame(() => {
+        try {
+          el.selectionStart = el.selectionEnd = start + sanitized.length;
+        } catch {}
+      });
+    }
+  };
 
   function appendFiles(newFiles: FileList | File[]) {
     if (saving || isFull) return;
@@ -319,6 +399,10 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
       toast.error("Completa tu perfil antes de publicar productos");
       return;
     }
+    if (limitReached) {
+      toast.error(`Alcanzaste el máximo de ${maxProducts ?? 0} productos para tu plan. Actualiza tu plan para publicar más.`);
+      return;
+    }
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -326,6 +410,20 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
 
       // Asegurar conversión/validación según schema
       const values = productSchema.parse(raw);
+
+      // Re-chequeo de límite por si cambió en otra pestaña
+      try {
+        const { count: countNow } = await supabase
+          .from('products')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        if (typeof maxProducts === 'number' && (countNow ?? 0) >= maxProducts) {
+          throw new Error(`Límite alcanzado: tu plan permite hasta ${maxProducts} productos.`);
+        }
+      } catch (err: any) {
+        toast.error(err?.message || 'No puedes publicar más productos con tu plan actual.');
+        return;
+      }
 
       const imageUrls = await uploadImages(user.id);
 
@@ -392,6 +490,12 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
           Para publicar productos, primero completa tu perfil (incluye tu CP). Ve al Dashboard y completa los datos requeridos.
         </div>
       )}
+      {limitReached && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 sm:text-sm">
+          Alcanzaste el máximo de {maxProducts ?? 0} productos para tu plan. Para publicar más, actualiza tu plan.
+          <a href="/planes" className="ml-2 underline text-orange-700 hover:text-orange-800">Ver planes</a>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="title" className={showError("title") ? "text-red-600" : undefined}>
@@ -408,7 +512,23 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         <Label htmlFor="description" className={showError("description") ? "text-red-600" : undefined}>
           Descripción <span className="text-red-600">*</span>
         </Label>
-        <Textarea id="description" rows={5} maxLength={250} {...form.register("description")} disabled={saving} className={fieldErrorClass("description")} />
+        <div className="rounded border border-amber-300 bg-amber-50 p-2 text-[12px] text-amber-900" data-testid="product-form-security-warning">
+          Seguridad: no incluyas datos personales o sensibles (teléfono, dirección, email, DNI, CBU, etc.).
+          Evita compartir información de contacto. No se permiten números en la descripción.
+        </div>
+        <Textarea
+          id="description"
+          rows={5}
+          maxLength={250}
+          inputMode="text"
+          {...form.register("description")}
+          onKeyDown={handleDescriptionKeyDown}
+          onBeforeInput={handleDescriptionBeforeInput}
+          onPaste={handleDescriptionPaste}
+          disabled={saving}
+          className={fieldErrorClass("description")}
+          data-testid="product-form-description"
+        />
         <div className="text-[11px] text-muted-foreground">{(form.watch("description")?.length ?? 0)} / 250 caracteres</div>
         {showError("description") && (
           <p className="text-xs text-red-600">{form.getFieldState("description", form.formState).error?.message}</p>
@@ -618,7 +738,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         <Button type="button" variant="outline" disabled={saving} onClick={() => router.back()}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={saving || !profileOk} className="bg-orange-500 text-white hover:bg-orange-600 focus-visible:ring-orange-600">
+        <Button type="submit" disabled={saving || !profileOk || limitReached} className="bg-orange-500 text-white hover:bg-orange-600 focus-visible:ring-orange-600" data-testid="product-form-submit">
           {saving ? "Guardando..." : "Publicar"}
         </Button>
       </div>

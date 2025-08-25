@@ -20,10 +20,11 @@ export default async function ProductsDashboardPage() {
 
   // Campos faltantes del perfil para bloquear creación si no está completo
   let missingLabels: string[] = [];
+  let planCode: string | null = null;
   try {
     const { data, error } = await supabase
       .from("profiles")
-      .select("first_name,last_name,dni_cuit,address,city,province,postal_code")
+      .select("first_name,last_name,dni_cuit,address,city,province,postal_code,plan_code")
       .eq("id", user.id)
       .single();
     if (!error) {
@@ -40,6 +41,9 @@ export default async function ProductsDashboardPage() {
         // @ts-ignore
         if (!data?.[key] || String(data?.[key]).trim().length === 0) missingLabels.push(label);
       });
+      // Plan actual (si existe)
+      // @ts-ignore
+      planCode = (data?.plan_code || "").toString() || null;
     }
   } catch {}
 
@@ -74,6 +78,22 @@ export default async function ProductsDashboardPage() {
     }
   } catch {}
 
+  // Resolver límite de productos del plan
+  let maxProducts: number | null = null;
+  if (planCode) {
+    try {
+      const { data: plan } = await supabase
+        .from("plans")
+        .select("max_products")
+        .eq("code", planCode)
+        .maybeSingle();
+      const mp = (plan as any)?.max_products;
+      maxProducts = typeof mp === "number" ? mp : (mp != null ? Number(mp) : null);
+    } catch {}
+  }
+  const currentCount = (products?.length ?? 0);
+  const limitReached = typeof maxProducts === "number" ? currentCount >= maxProducts : false;
+
   // Ordenar en memoria: destacados vigentes primero, luego por fecha de creación desc
   const nowDate = new Date();
   const sortedProducts = (products ?? []).slice().sort((a: any, b: any) => {
@@ -92,6 +112,9 @@ export default async function ProductsDashboardPage() {
         <GuardedCreateButton
           href="/dashboard/products/new"
           missingLabels={missingLabels}
+          limitReached={limitReached}
+          maxProducts={maxProducts}
+          currentCount={currentCount}
           className="relative overflow-hidden group inline-flex w-full items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 sm:w-auto"
         >
           <span className="pointer-events-none absolute -left-20 top-0 h-full w-1/3 -skew-x-12 bg-white/30 transition-transform duration-500 group-hover:translate-x-[200%]" />
@@ -175,3 +198,4 @@ export default async function ProductsDashboardPage() {
     </div>
   );
 }
+

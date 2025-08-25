@@ -132,70 +132,120 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: rndError.message }, { status: 500 });
       }
 
-      const items = (candidates || []).slice();
-      // Fisher-Yates shuffle
-      for (let i = items.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [items[i], items[j]] = [items[j], items[i]];
-      }
-      const limited = items.slice(0, pageSize);
+      let items = (candidates || []).slice();
 
-      // Enriquecer con imagen principal y perfil de vendedor
-      let withImages = limited;
-      if (limited.length > 0) {
-        const ids = limited.map((p: any) => p.id);
-        const userIds = Array.from(new Set(limited.map((p: any) => p.user_id)));
+      // Obtener planes de los vendedores y calcular límites por plan
+      if (items.length > 0) {
+        const userIdsAll = Array.from(new Set(items.map((p: any) => p.user_id)));
+        const { data: sellerProfiles } = await supabase
+          .from("profiles")
+          .select("id, plan_code, first_name, last_name, city, province, company")
+          .in("id", userIdsAll);
 
-        const [{ data: images }, { data: profiles }] = await Promise.all([
-          supabase
-            .from("product_images")
-            .select("product_id,url,id")
-            .in("product_id", ids)
-            .order("id", { ascending: true }),
-          supabase
-            .from("profiles")
-            .select("id, first_name, last_name, city, province, company")
-            .in("id", userIds),
-        ]);
+        const freeCodes = new Set(["gratis", "free", "basic"]);
+        const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
+        const deluxeCodes = new Set(["deluxe", "diamond"]);
+        const limitBySeller = new Map<string, number>();
 
-        const firstImageByProduct = new Map<string, string | null>();
-        if (images) {
-          for (const img of images as any[]) {
-            if (!firstImageByProduct.has(img.product_id)) {
-              firstImageByProduct.set(img.product_id, img.url);
+        for (const sp of (sellerProfiles || []) as any[]) {
+          const code = String(sp?.plan_code || "").toLowerCase();
+          let limit = 999999; // sin límite práctico para otros planes
+          if (freeCodes.has(code)) limit = 1;
+          else if (plusCodes.has(code)) limit = 15;
+          else if (deluxeCodes.has(code)) limit = 30;
+          limitBySeller.set(sp.id, limit);
+        }
+
+        // Si es página de vendedor, ajustar límite por excludeProductId
+        if (sellerId) {
+          const currentLimit = limitBySeller.get(sellerId) ?? 999999;
+          const allowed = Math.max(0, currentLimit - (excludeProductId ? 1 : 0));
+          limitBySeller.set(sellerId, allowed);
+        }
+
+        // Fisher-Yates shuffle
+        for (let i = items.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [items[i], items[j]] = [items[j], items[i]];
+        }
+
+        // Aplicar límites por vendedor
+        const usedBySeller = new Map<string, number>();
+        const filtered: any[] = [];
+        for (const p of items) {
+          const uid = p.user_id as string;
+          const limit = limitBySeller.get(uid) ?? 999999;
+          const used = usedBySeller.get(uid) ?? 0;
+          if (used >= limit) continue;
+          usedBySeller.set(uid, used + 1);
+          filtered.push(p);
+        }
+        items = filtered;
+
+        // Limitar a pageSize luego del filtrado
+        const limited = items.slice(0, pageSize);
+
+        // Enriquecer con imagen principal y perfil de vendedor
+        let withImages = limited;
+        if (limited.length > 0) {
+          const ids = limited.map((p: any) => p.id);
+
+          const [{ data: images }] = await Promise.all([
+            supabase
+              .from("product_images")
+              .select("product_id,url,id")
+              .in("product_id", ids)
+              .order("id", { ascending: true }),
+          ]);
+
+          const firstImageByProduct = new Map<string, string | null>();
+          if (images) {
+            for (const img of images as any[]) {
+              if (!firstImageByProduct.has(img.product_id)) {
+                firstImageByProduct.set(img.product_id, img.url);
+              }
             }
           }
-        }
 
-        const profileById = new Map<string, any>();
-        if (profiles) {
-          for (const prof of profiles as any[]) {
-            profileById.set(prof.id, {
-              first_name: prof.first_name,
-              last_name: prof.last_name,
-              city: prof.city,
-              province: prof.province,
-              company: prof.company,
+          const profileById = new Map<string, any>();
+          for (const sp of (sellerProfiles || []) as any[]) {
+            profileById.set(sp.id, {
+              first_name: sp.first_name,
+              last_name: sp.last_name,
+              city: sp.city,
+              province: sp.province,
+              company: sp.company,
+              plan_code: sp.plan_code,
             });
           }
+
+          withImages = limited.map((p: any) => ({
+            ...p,
+            primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
+            profiles: profileById.get(p.user_id) || {},
+          }));
         }
 
-        withImages = limited.map((p: any) => ({
-          ...p,
-          primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
-          profiles: profileById.get(p.user_id) || {},
-        }));
+        // Ajustar total: si hay sellerId, acotar por límite del plan (y -1 si excludeProductId)
+        let effectiveTotal = rndCount || 0;
+        if (sellerId) {
+          const sellerLimit = limitBySeller.get(sellerId) ?? 999999;
+          const cap = Math.max(0, sellerLimit - (excludeProductId ? 1 : 0));
+          effectiveTotal = Math.min(effectiveTotal, cap);
+        }
+        const total = effectiveTotal;
+
+        return NextResponse.json({
+          items: withImages,
+          page,
+          pageSize,
+          total,
+          hasMore: false,
+        });
       }
 
-      const total = rndCount || 0;
-
-      return NextResponse.json({
-        items: withImages,
-        page,
-        pageSize,
-        total,
-        hasMore: false,
-      });
+      // Sin candidatos
+      return NextResponse.json({ items: [], page, pageSize, total: 0, hasMore: false });
     }
 
     const { data: products, error, count } = await query;
@@ -207,23 +257,57 @@ export async function GET(req: NextRequest) {
 
     const items = products || [];
 
-    // Enriquecer con imagen principal y perfil de vendedor
+    // Filtrar por límites de plan por vendedor (gratis=1, plus=15, deluxe=30)
     let withImages = items;
     if (items.length > 0) {
-      const ids = items.map((p) => p.id);
       const userIds = Array.from(new Set(items.map((p) => p.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, plan_code, first_name, last_name, city, province, company")
+        .in("id", userIds);
 
-      const [{ data: images }, { data: profiles }] = await Promise.all([
-        supabase
-          .from("product_images")
-          .select("product_id,url,id")
-          .in("product_id", ids)
-          .order("id", { ascending: true }),
-        supabase
-          .from("profiles")
-          .select("id, first_name, last_name, city, province, company")
-          .in("id", userIds),
-      ]);
+      const profileById = new Map<string, any>();
+      for (const prof of (profiles || []) as any[]) {
+        profileById.set(prof.id, prof);
+      }
+
+      const freeCodes = new Set(["gratis", "free", "basic"]);
+      const plusCodes = new Set(["plus", "enterprise", "premium", "pro"]);
+      const deluxeCodes = new Set(["deluxe", "diamond"]);
+      const getSellerLimit = (uid: string) => {
+        const code = String(profileById.get(uid)?.plan_code || "").toLowerCase();
+        if (freeCodes.has(code)) return 1;
+        if (plusCodes.has(code)) return 15;
+        if (deluxeCodes.has(code)) return 30;
+        return 999999; // otros planes: sin límite práctico
+      };
+
+      let filtered = items as typeof items;
+      if (sellerId) {
+        const limit = getSellerLimit(sellerId);
+        const allowed = Math.max(0, limit - (excludeProductId ? 1 : 0));
+        filtered = items.slice(0, allowed);
+      } else {
+        // Listado general: aplicar límite por vendedor según plan
+        const usedBySeller = new Map<string, number>();
+        filtered = [] as typeof items;
+        for (const p of items) {
+          const uid = p.user_id as string;
+          const limit = getSellerLimit(uid);
+          const used = usedBySeller.get(uid) ?? 0;
+          if (used >= limit) continue;
+          usedBySeller.set(uid, used + 1);
+          filtered.push(p);
+        }
+      }
+
+      // Enriquecer con imágenes para el subconjunto filtrado
+      const ids = filtered.map((p) => p.id);
+      const { data: images } = await supabase
+        .from("product_images")
+        .select("product_id,url,id")
+        .in("product_id", ids)
+        .order("id", { ascending: true });
 
       const firstImageByProduct = new Map<string, string | null>();
       if (images) {
@@ -234,36 +318,43 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const profileById = new Map<string, any>();
-      if (profiles) {
-        for (const prof of profiles as any[]) {
-          profileById.set(prof.id, {
+      withImages = filtered.map((p) => ({
+        ...p,
+        primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
+        profiles: (() => {
+          const prof = profileById.get(p.user_id) || {};
+          return {
             first_name: prof.first_name,
             last_name: prof.last_name,
             city: prof.city,
             province: prof.province,
             company: prof.company,
-          });
-        }
-      }
-
-      withImages = items.map((p) => ({
-        ...p,
-        primaryImageUrl: firstImageByProduct.get(p.id) ?? null,
-        profiles: profileById.get(p.user_id) || {},
+            plan_code: prof.plan_code,
+          };
+        })(),
       }));
+
+      // Ajustar totales: si es sellerId, acotar por límite del plan (y -1 si se excluye el actual)
+      let effectiveTotal = count || 0;
+      if (sellerId) {
+        const limit = getSellerLimit(sellerId);
+        const cap = Math.max(0, limit - (excludeProductId ? 1 : 0));
+        effectiveTotal = Math.min(effectiveTotal, cap);
+      }
+      const total = effectiveTotal;
+      const hasMore = from + withImages.length < total;
+
+      return NextResponse.json({
+        items: withImages,
+        page,
+        pageSize,
+        total,
+        hasMore,
+      });
     }
 
-    const total = count || 0;
-    const hasMore = from + withImages.length < total;
-
-    return NextResponse.json({
-      items: withImages,
-      page,
-      pageSize,
-      total,
-      hasMore,
-    });
+    // Sin items
+    return NextResponse.json({ items: [], page, pageSize, total: 0, hasMore: false });
   } catch (e: any) {
     console.error("API products error:", e);
     return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });

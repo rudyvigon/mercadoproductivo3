@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 const mainNavItems = [
   { label: "Marketplace", href: "/", icon: MdHome },
   { label: "Vendedores", href: "/vendedores", icon: MdStore },
+  { label: "Exportadores", href: "/exportadores", icon: MdStore },
   { label: "Nosotros", href: "/nosotros", icon: MdInfo },
   { label: "Planes", href: "/planes", icon: MdCreditCard },
   { label: "Contacto", href: "/contacto", icon: MdPhone },

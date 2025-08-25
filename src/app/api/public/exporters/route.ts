@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 
 function planCodeToLabel(code?: string | null) {
   const c = String(code || "").toLowerCase();
-  // Canonicales: gratis, plus, deluxe. Sinónimos por compatibilidad.
   if (c === "gratis" || c === "free" || c === "basic") return "Plan Básico";
   if (c === "plus" || c === "enterprise") return "Plan Plus";
   if (c === "deluxe" || c === "premium" || c === "pro") return "Plan Deluxe";
@@ -30,7 +29,7 @@ export async function GET(req: Request) {
 
     const supabase = createAdminClient();
 
-    // Cargar nombres de planes desde base para mapear plan_code -> name
+    // Plan labels
     const { data: planRows } = await supabase
       .from("plans")
       .select("code, name");
@@ -38,6 +37,29 @@ export async function GET(req: Request) {
       (planRows || []).map((p: any) => [String(p?.code || "").toLowerCase(), p?.name || null])
     );
 
+    // 1) Obtener IDs de perfiles con exportador=true y plan deluxe/premium/pro
+    const { data: exporterProfiles, error: exporterErr } = await supabase
+      .from("profiles")
+      .select("id, plan_code")
+      .in("plan_code", ["deluxe", "premium", "pro"]) // sinónimos tratados como deluxe
+      .eq("exportador", true);
+
+    if (exporterErr) {
+      return NextResponse.json(
+        { error: "QUERY_ERROR", message: exporterErr.message || "No se pudo obtener exportadores" },
+        { status: 500 }
+      );
+    }
+
+    const exporterIds = (exporterProfiles || []).map((p: any) => p.id);
+    if (exporterIds.length === 0) {
+      return NextResponse.json(
+        { items: [], page, page_size: pageSize, total: 0, total_pages: 1 },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    // 2) Traer stats de vendedores para esos IDs
     const selectColumns = [
       "seller_id",
       "first_name",
@@ -56,18 +78,19 @@ export async function GET(req: Request) {
     const { data, error, count } = await supabase
       .from("v_seller_stats")
       .select(selectColumns, { count: "exact" })
+      .in("seller_id", exporterIds)
       .order(orderColumn, { ascending: orderDir === "asc" })
       .range(from, to);
 
     if (error) {
       return NextResponse.json(
-        { error: "QUERY_ERROR", message: (error as any)?.message || "No se pudo obtener el listado de vendedores" },
+        { error: "QUERY_ERROR", message: (error as any)?.message || "No se pudo obtener el listado de exportadores" },
         { status: 500 }
       );
     }
 
     const items = (data || []).map((row: any) => {
-      const name = (row.company || "Vendedor").toString();
+      const name = (row.company || row.full_name || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Vendedor").toString();
       const codeLower = String(row.plan_code || "").toLowerCase();
       const planName = planNameByCode.get(codeLower) || null;
       return {
