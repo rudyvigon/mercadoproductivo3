@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Star, MapPin } from "lucide-react";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+} from "@/components/ui/carousel";
 
 interface FeaturedProduct {
   id: string;
@@ -24,7 +31,6 @@ interface FeaturedProduct {
 export default function FeaturedProductsCarousel() {
   const [products, setProducts] = useState<FeaturedProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
 
   // Cargar productos destacados
   useEffect(() => {
@@ -53,28 +59,7 @@ export default function FeaturedProductsCarousel() {
     fetchFeaturedProducts();
   }, []);
 
-  // Detectar modo mobile para habilitar drag nativo y desactivar marquee
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 767px)');
-    const update = () => setIsMobile(mq.matches);
-    update();
-    // Compatibilidad con Safari
-    if (mq.addEventListener) {
-      mq.addEventListener('change', update);
-      return () => mq.removeEventListener('change', update);
-    } else {
-      // @ts-ignore
-      mq.addListener(update);
-      return () => {
-        // @ts-ignore
-        mq.removeListener(update);
-      };
-    }
-  }, []);
-
-  // Duplicamos el arreglo para loop infinito sin saltos
-  const loopProducts = useMemo(() => products.length > 0 ? [...products, ...products] : [], [products]);
+  // Carrusel manual con flechas; sin autoplay
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('es-AR', {
@@ -127,7 +112,7 @@ export default function FeaturedProductsCarousel() {
   }
 
   return (
-    <section id="destacados" className="py-10 bg-gradient-to-b from-orange-50 to-white">
+    <section id="destacados" className="pt-10 pb-20 bg-gradient-to-b from-orange-50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-8">
@@ -137,80 +122,75 @@ export default function FeaturedProductsCarousel() {
           <div className="w-24 h-1 bg-orange-500 mx-auto" />
         </div>
 
-        {/* Carrusel una sola fila: en mobile drag nativo con snap; en desktop marquee infinito */}
+        {/* Carrusel con flechas (sin autoplay) */}
         <div className="relative">
-          <div className={`${isMobile ? "overflow-x-auto touch-auto snap-x snap-mandatory -mx-4 px-4" : "overflow-x-hidden"} overflow-y-visible py-1`}>
-            <div
-              className={`flex items-stretch whitespace-nowrap ${isMobile ? "gap-0" : ""}`}
-              style={isMobile ? undefined : (loopProducts.length ? { animation: "marquee 40s linear infinite" as any } : undefined)}
-            >
-              {loopProducts.map((product, idx) => (
-                <div key={`${product.id}-${idx}`} className={`px-3 shrink-0 w-[280px] sm:w-[300px] ${isMobile ? "snap-start" : ""}`}>
-                  <Card className="group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden">
-                    <div className="relative">
-                      {/* Badge destacado */}
-                      <Badge className="absolute top-3 left-3 z-10 bg-orange-500 hover:bg-orange-600">
-                        <Star className="h-3 w-3 mr-1" />
-                        Destacado
-                      </Badge>
-                      {/* Imagen */}
-                      <div className="aspect-[4/3] overflow-hidden bg-gray-100">
-                        {product.primaryImageUrl ? (
-                          <Image
-                            src={product.primaryImageUrl}
-                            alt={product.title}
-                            width={300}
-                            height={200}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
-                            <div className="text-center text-orange-400">
-                              <Star className="h-8 w-8 mx-auto mb-1" />
-                              <span className="text-xs font-medium">Destacado</span>
+          <Carousel opts={{ align: "start", loop: false }}>
+            <CarouselContent className="pb-4 sm:pb-6 md:pb-8">
+              {products.map((product) => (
+                <CarouselItem key={product.id} className="sm:basis-1/2 lg:basis-1/3 xl:basis-1/4 pb-6 sm:pb-8 md:pb-10">
+                  <div className="">
+                    <Card className="group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden h-full flex flex-col">
+                      <div className="relative">
+                        {/* Badge destacado */}
+                        <Badge className="absolute top-3 left-3 z-10 bg-orange-500 hover:bg-orange-600">
+                          <Star className="h-3 w-3 mr-1" />
+                          Destacado
+                        </Badge>
+                        {/* Imagen */}
+                        <div className="aspect-[4/3] overflow-hidden bg-gray-100">
+                          {product.primaryImageUrl ? (
+                            <Image
+                              src={product.primaryImageUrl}
+                              alt={product.title}
+                              width={300}
+                              height={200}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
+                              <div className="text-center text-orange-400">
+                                <Star className="h-8 w-8 mx-auto mb-1" />
+                                <span className="text-xs font-medium">Destacado</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <CardContent className="p-4">
-                      <Badge variant="secondary" className="mb-2 text-xs">
-                        {product.category}
-                      </Badge>
-                      <h3 className="font-semibold text-lg mb-2 line-clamp-2 group-hover:text-orange-600 transition-colors">
-                        {product.title}
-                      </h3>
-                      <div className="flex items-center text-sm text-gray-500 mb-3">
-                        <MapPin className="h-4 w-4 mr-1" />
-                        <span className="truncate">{product.location || 'Ubicación no especificada'}</span>
-                      </div>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <span className="text-2xl font-bold text-orange-600">{formatPrice(product.price)}</span>
-                          <span className="text-sm text-gray-500 ml-1">/ {product.quantity_unit}</span>
+                          )}
                         </div>
-                        <span className="text-sm text-gray-600">{product.quantity_value} {product.quantity_unit} disp.</span>
                       </div>
-                      <Button asChild className="w-full bg-orange-500 hover:bg-orange-600">
-                        <Link href={`/products/${product.id}`}>
-                          Ver Producto
-                        </Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </div>
+                      <CardContent className="p-4 flex flex-col flex-1">
+                        <Badge variant="secondary" className="mb-2 text-xs">
+                          {product.category}
+                        </Badge>
+                        <h3 className="font-semibold text-lg mb-2 line-clamp-2 group-hover:text-orange-600 transition-colors">
+                          {product.title}
+                        </h3>
+                        <div className="flex items-center text-sm text-gray-500 mb-3">
+                          <MapPin className="h-4 w-4 mr-1" />
+                          <span className="truncate">{product.location || 'Ubicación no especificada'}</span>
+                        </div>
+                        <div className="mb-4">
+                          <div>
+                            <span className="text-2xl font-bold text-orange-600">{formatPrice(product.price)}</span>
+                            <span className="text-sm text-gray-500 ml-1">/ {product.quantity_unit}</span>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">{product.quantity_value} {product.quantity_unit} disp.</div>
+                        </div>
+                        <div className="mt-auto flex gap-2">
+                          <Button asChild className="flex-1 bg-orange-500 hover:bg-orange-600">
+                            <Link href={`/products/${product.id}`}>
+                              Ver Producto
+                            </Link>
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </CarouselItem>
               ))}
-            </div>
-          </div>
+            </CarouselContent>
+            <CarouselPrevious />
+            <CarouselNext />
+          </Carousel>
         </div>
-
-        {/* Keyframes locales para el marquee */}
-        <style jsx>{`
-          @keyframes marquee {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-          }
-        `}</style>
       </div>
     </section>
   );
