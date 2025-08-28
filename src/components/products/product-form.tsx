@@ -54,7 +54,11 @@ const AR_PROVINCES = [
 ];
 
 const productSchema = z.object({
-  title: z.string().min(3, "Mínimo 3 caracteres").max(20, "Máximo 20 caracteres"),
+  title: z
+    .string()
+    .min(3, "Mínimo 3 caracteres")
+    .max(20, "Máximo 20 caracteres")
+    .refine((v) => !/[0-9]/.test(v), { message: "El título no puede contener números" }),
   description: z
     .string()
     .min(10, "Mínimo 10 caracteres")
@@ -332,6 +336,40 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
     }
   };
 
+  // Handlers para bloquear números en el título
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key && e.key.length === 1 && /[0-9]/.test(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleTitleBeforeInput = (e: FormEvent<HTMLInputElement>) => {
+    const data = (e as any)?.nativeEvent?.data as string | null;
+    if (data && /[0-9]/.test(data)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleTitlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (/[0-9]/.test(text)) {
+      e.preventDefault();
+      const sanitized = text.replace(/[0-9]/g, "");
+      const el = e.target as HTMLInputElement;
+      const prev = el.value || "";
+      const start = el.selectionStart ?? prev.length;
+      const end = el.selectionEnd ?? prev.length;
+      const next = prev.slice(0, start) + sanitized + prev.slice(end);
+      form.setValue("title", next, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      // Restaurar cursor
+      requestAnimationFrame(() => {
+        try {
+          el.selectionStart = el.selectionEnd = start + sanitized.length;
+        } catch {}
+      });
+    }
+  };
+
   function appendFiles(newFiles: FileList | File[]) {
     if (saving || isFull) return;
     const all = Array.from(newFiles);
@@ -501,7 +539,17 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         <Label htmlFor="title" className={showError("title") ? "text-red-600" : undefined}>
           Título <span className="text-red-600">*</span>
         </Label>
-        <Input id="title" maxLength={20} {...form.register("title")} disabled={saving} className={fieldErrorClass("title")} />
+        <Input
+          id="title"
+          maxLength={20}
+          inputMode="text"
+          {...form.register("title")}
+          onKeyDown={handleTitleKeyDown}
+          onBeforeInput={handleTitleBeforeInput}
+          onPaste={handleTitlePaste}
+          disabled={saving}
+          className={fieldErrorClass("title")}
+        />
         <div className="text-xs text-muted-foreground">{(form.watch("title")?.length ?? 0)} / 20 caracteres</div>
         {showError("title") && (
           <p className="text-xs text-red-600">{form.getFieldState("title", form.formState).error?.message}</p>

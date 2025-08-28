@@ -1,7 +1,25 @@
 import { ReactNode } from "react";
 import DashboardSidebar from "@/components/dashboard/sidebar";
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { getNormalizedRoleFromUser } from "@/lib/auth/role";
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
+export default async function DashboardLayout({ children }: { children: ReactNode }) {
+  // Guardia adicional del lado del servidor (además del middleware)
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/auth/login");
+  }
+
+  const role = getNormalizedRoleFromUser(user);
+  if (role !== "seller") {
+    redirect("/profile");
+  }
+
   return (
     <div className="flex min-h-screen bg-background">
       <DashboardSidebar />

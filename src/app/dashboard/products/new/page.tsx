@@ -4,6 +4,7 @@ import ProductForm from "@/components/products/product-form";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
+import { getNormalizedRoleFromUser } from "@/lib/auth/role";
 
 
 export default async function NewProductPage() {
@@ -13,6 +14,12 @@ export default async function NewProductPage() {
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/auth/login");
+
+  // Guard de rol: solo vendedores pueden crear productos
+  const role = getNormalizedRoleFromUser(user);
+  if (role !== "seller") {
+    redirect("/profile");
+  }
 
   // Calcular campos faltantes de perfil (incluye CP) para informar en el formulario
   let missingLabels: string[] = [];

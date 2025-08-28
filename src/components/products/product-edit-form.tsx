@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ClipboardEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -153,6 +153,40 @@ export default function ProductEditForm({ product, canPublish }: ProductEditForm
       ...prev,
       [field]: value
     }));
+  };
+
+  // --- Validaciones de entrada: bloquear números en el título ---
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key && e.key.length === 1 && /[0-9]/.test(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleTitleBeforeInput = (e: FormEvent<HTMLInputElement>) => {
+    const data = (e as any)?.nativeEvent?.data as string | null;
+    if (data && /[0-9]/.test(data)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleTitlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (/[0-9]/.test(text)) {
+      e.preventDefault();
+      const sanitized = text.replace(/[0-9]/g, "");
+      const el = e.target as HTMLInputElement;
+      const prev = el.value || "";
+      const start = el.selectionStart ?? prev.length;
+      const end = el.selectionEnd ?? prev.length;
+      const next = prev.slice(0, start) + sanitized + prev.slice(end);
+      setFormData((p) => ({ ...p, title: next }));
+      // Restaurar cursor
+      requestAnimationFrame(() => {
+        try {
+          el.selectionStart = el.selectionEnd = start + sanitized.length;
+        } catch {}
+      });
+    }
   };
 
   // --- Gestión de imágenes (galería) ---
@@ -418,6 +452,11 @@ useEffect(() => {
   }, [formData.province]);
 
   const handleSave = async () => {
+    // Validación de que el título no contenga números
+    if (/[0-9]/.test((formData.title || ""))) {
+      toast.error("El título no puede contener números");
+      return;
+    }
     // Validación de longitudes antes de guardar
     if ((formData.title || "").length > TITLE_MAX) {
       toast.error(`El título supera ${TITLE_MAX} caracteres`);
@@ -633,9 +672,23 @@ useEffect(() => {
   };
 
   const handleFeature = async () => {
-    setLoading(true);
     try {
       if (isFeature) {
+        // Confirmar antes de quitar destacado
+        let ok = false;
+        try {
+          const mod = await import('../ui/confirm-modal');
+          ok = await mod.default({
+            title: '¿Quitar destacado?',
+            description: 'El producto dejará de aparecer en la sección de destacados.',
+            confirmText: 'Quitar destacado',
+            cancelText: 'Cancelar',
+          });
+        } catch {
+          ok = window.confirm('¿Quitar el destacado de este producto?');
+        }
+        if (!ok) return;
+        setLoading(true);
         // Quitar destacado (sin costo), reforzando ownership
         const { error } = await supabase
           .from('products')
@@ -650,6 +703,7 @@ useEffect(() => {
           toast.error('Tu plan actual no permite destacar productos');
           return;
         }
+        setLoading(true);
         // Destacar (con costo de créditos) vía API
         const res = await fetch('/api/products/feature', {
           method: 'POST',
@@ -840,6 +894,10 @@ useEffect(() => {
                 onChange={(e) => handleInputChange('title', e.target.value)}
                 placeholder="Ej: Soja de excelente calidad"
                 maxLength={TITLE_MAX}
+                inputMode="text"
+                onKeyDown={handleTitleKeyDown}
+                onBeforeInput={handleTitleBeforeInput}
+                onPaste={handleTitlePaste}
                 className="mt-1"
               />
               <div className="text-xs text-muted-foreground">{(formData.title?.length ?? 0)} / {TITLE_MAX} caracteres</div>

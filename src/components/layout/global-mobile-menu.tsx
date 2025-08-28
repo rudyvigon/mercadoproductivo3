@@ -70,14 +70,16 @@ export default function GlobalMobileMenu() {
     });
     
     // Suscribirse a cambios de auth
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setUserLoading(false);
     });
     
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      try {
+        subscription?.unsubscribe();
+      } catch {}
     };
   }, [supabase]);
 
@@ -118,6 +120,18 @@ export default function GlobalMobileMenu() {
     (user?.user_metadata?.full_name as string | undefined) || 
     (user?.user_metadata?.name as string | undefined) || 
     "Usuario";
+
+  // Rol normalizado (usa role o legacy user_type; mapea 'anunciante' -> 'seller')
+  const roleRaw = (user?.user_metadata?.role || (user as any)?.user_metadata?.user_type || "").toString();
+  const roleNormalized = roleRaw === "anunciante" ? "seller" : roleRaw;
+  const isSeller = roleNormalized === "seller";
+
+  // Items de cuenta según rol
+  const buyerAccountItems = [
+    { label: "Perfil", href: "/profile", icon: BsFillPersonFill },
+  ] as const;
+  const accountItems = isSeller ? sortedDashboardItems : buyerAccountItems;
+  const sectionTitle = isSeller ? "Dashboard" : "Cuenta";
 
   // Cerrar sesión
   const handleSignOut = async () => {
@@ -189,16 +203,16 @@ export default function GlobalMobileMenu() {
               </div>
             </div>
 
-            {/* Navegación del dashboard si el usuario está autenticado */}
+            {/* Navegación de cuenta/dashboard si el usuario está autenticado */}
             {user && (
               <>
                 <Separator />
                 <div className="space-y-2">
                   <h3 className="px-2 text-xs font-medium uppercase text-muted-foreground tracking-wider">
-                    Dashboard
+                    {sectionTitle}
                   </h3>
                   <div className="grid gap-2">
-                    {sortedDashboardItems.map(({ href, label, icon: Icon }) => (
+                    {accountItems.map(({ href, label, icon: Icon }) => (
                       <Link
                         key={href}
                         href={href}

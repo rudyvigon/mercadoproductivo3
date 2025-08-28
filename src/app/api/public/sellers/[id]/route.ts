@@ -13,6 +13,25 @@ function planCodeToLabel(code?: string | null) {
   return "Básico";
 }
 
+// Normaliza el teléfono a formato internacional simple (WhatsApp-friendly):
+// - elimina no dígitos
+// - remueve prefijo internacional 00 si existe
+// - si country=AR y no empieza con 54, lo antepone
+// - retorna string vacío si queda demasiado corto
+function normalizePhoneInternational(raw?: string | null, country?: string | null): string {
+  const digitsOnly = String(raw || "").replace(/\D/g, "");
+  if (!digitsOnly) return "";
+  let d = digitsOnly.replace(/^00/, "");
+  const c = String(country || "").trim().toUpperCase();
+  // Heurística suave para Argentina
+  if (c === "AR" || /argentina/i.test(String(country || ""))) {
+    if (!d.startsWith("54") && d.length >= 8 && d.length <= 12) {
+      d = `54${d}`;
+    }
+  }
+  return d.length >= 8 ? d : "";
+}
+
 export async function GET(_req: Request, ctx: { params: { id: string } }) {
   try {
     const id = ctx?.params?.id;
@@ -75,6 +94,42 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
         if (planRow?.name) plan_label = planRow.name;
       }
 
+      // Conteo de likes agregado por vista
+      let likes_count = 0;
+      {
+        const { data: likeRows } = await supabase
+          .from("v_profile_likes_count")
+          .select("likes_count")
+          .eq("seller_id", id)
+          .limit(1);
+        likes_count = likeRows?.[0]?.likes_count ?? 0;
+      }
+
+      // Obtener teléfono desde profiles para normalizarlo (la vista puede no exponerlo)
+      let phone: string | null = null;
+      {
+        let pr: any = null;
+        let err: any = null;
+        {
+          const res = await supabase
+            .from("profiles")
+            .select("phone, country")
+            .eq("id", id)
+            .single();
+          pr = res.data; err = res.error;
+        }
+        if (err && /country|column|does not exist/i.test(err?.message || "")) {
+          const res2 = await supabase
+            .from("profiles")
+            .select("phone")
+            .eq("id", id)
+            .single();
+          pr = res2.data;
+        }
+        const raw = pr?.phone ?? null;
+        phone = normalizePhoneInternational(raw, pr?.country ?? null) || null;
+      }
+
       return NextResponse.json(
         {
           seller: {
@@ -92,6 +147,8 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
             plan_code: row.plan_code ?? null,
             plan_label,
             products_count: row.products_count ?? 0,
+            likes_count,
+            phone,
           },
         },
         { headers: { "Cache-Control": "no-store" } }
@@ -99,7 +156,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     }
 
     // Fallback a profiles + conteo de productos (compatibilidad)
-    const profCols = [
+    let profCols = [
       "id",
       "first_name",
       "last_name",
@@ -111,26 +168,55 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       "updated_at",
       "plan_activated_at",
       "plan_code",
+      "phone",
+      "country",
     ].join(", ");
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(profCols)
-      .eq("id", id)
-      .single();
+    let dataSafe: any = null;
+    let errorSafe: any = null;
+    {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(profCols)
+        .eq("id", id)
+        .single();
+      dataSafe = data; errorSafe = error;
+    }
+    if (errorSafe && /country|column|does not exist/i.test(errorSafe?.message || "")) {
+      profCols = [
+        "id",
+        "first_name",
+        "last_name",
+        "full_name",
+        "company",
+        "city",
+        "province",
+        "avatar_url",
+        "updated_at",
+        "plan_activated_at",
+        "plan_code",
+        "phone",
+      ].join(", ");
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(profCols)
+        .eq("id", id)
+        .single();
+      dataSafe = data; errorSafe = error;
+    }
 
-    if (error) {
+    if (errorSafe) {
       return NextResponse.json(
-        { error: "QUERY_ERROR", message: (error as any)?.message || "No se pudo obtener el perfil del vendedor" },
+        { error: "QUERY_ERROR", message: (errorSafe as any)?.message || "No se pudo obtener el perfil del vendedor" },
         { status: 500 }
       );
     }
 
-    if (!data) {
+    if (!dataSafe) {
       return NextResponse.json({ error: "NOT_FOUND", message: "Vendedor no encontrado" }, { status: 404 });
     }
 
-    const row = data as any;
+    const row = dataSafe as any;
     const first = (row.first_name || "").trim();
     const last = (row.last_name || "").trim();
     const full_name = (row.full_name || `${first} ${last}`.trim()) || "Vendedor";
@@ -147,11 +233,25 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     }
     const created_at = row.plan_activated_at ?? row.updated_at ?? null;
 
+    // Normalizar teléfono desde profiles
+    const phoneOut = normalizePhoneInternational(row.phone ?? null, row.country ?? null) || null;
+
     // Conteo de productos
     const { count: products_count } = await supabase
       .from("products")
       .select("id", { count: "exact", head: true })
       .eq("user_id", id);
+
+    // Conteo de likes
+    let likes_count = 0;
+    {
+      const { data: likeRows } = await supabase
+        .from("v_profile_likes_count")
+        .select("likes_count")
+        .eq("seller_id", id)
+        .limit(1);
+      likes_count = likeRows?.[0]?.likes_count ?? 0;
+    }
 
     return NextResponse.json(
       {
@@ -170,6 +270,8 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
           plan_code: row.plan_code ?? null,
           plan_label,
           products_count: products_count || 0,
+          likes_count,
+          phone: phoneOut,
         },
       },
       {
@@ -180,3 +282,4 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: e?.message || "Error inesperado" }, { status: 500 });
   }
 }
+

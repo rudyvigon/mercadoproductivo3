@@ -9,6 +9,7 @@ export default function ProfileFormCard() {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const submitRef = useRef<(() => void) | null>(null);
+  const resetRef = useRef<(() => void) | null>(null);
 
   const handleClick = () => {
     if (!editing) {
@@ -26,14 +27,29 @@ export default function ProfileFormCard() {
           <CardTitle className="text-lg">Mi Perfil</CardTitle>
           <CardDescription>Actualiza tu información personal</CardDescription>
         </div>
-        <Button
-          size="sm"
-          onClick={handleClick}
-          variant={editing ? "default" : "outline"}
-          className={`ml-auto ${!editing ? "bg-white text-[#f06d04] border border-[#f06d04] hover:bg-[#f06d04]/10" : ""}`}
-        >
-          {editing ? "Guardar" : "Editar perfil"}
-        </Button>
+        <div className="ml-auto inline-flex items-center gap-2">
+          {editing && (
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => {
+                resetRef.current?.();
+                setEditing(false);
+              }}
+            >
+              Cancelar
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleClick}
+            variant={editing ? "default" : "outline"}
+            className={`${!editing ? "bg-white text-[#f06d04] border border-[#f06d04] hover:bg-[#f06d04]/10" : ""}`}
+          >
+            {editing ? "Guardar" : "Editar perfil"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <ProfileForm
@@ -41,6 +57,9 @@ export default function ProfileFormCard() {
           hideInternalSubmit
           registerSubmit={(fn) => {
             submitRef.current = fn;
+          }}
+          registerReset={(fn) => {
+            resetRef.current = fn;
           }}
           onSaved={() => {
             setEditing(false);

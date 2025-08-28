@@ -1,5 +1,6 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse, type NextRequest } from "next/server";
+import { normalizeRoleFromMetadata } from "@/lib/auth/role";
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
@@ -20,6 +21,20 @@ export async function middleware(req: NextRequest) {
     url.pathname = "/auth/login";
     url.searchParams.set("next", req.nextUrl.pathname);
     return NextResponse.redirect(url);
+  }
+
+  // Restringir /dashboard a usuarios con rol seller
+  if (session && req.nextUrl.pathname.startsWith("/dashboard")) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const role = normalizeRoleFromMetadata(user?.user_metadata || {});
+    if (role !== "seller") {
+      const url = req.nextUrl.clone();
+      url.pathname = "/profile";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
   // Evitar acceso a login/register si ya hay sesión iniciada

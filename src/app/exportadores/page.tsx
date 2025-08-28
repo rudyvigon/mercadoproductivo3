@@ -1,10 +1,7 @@
-import Link from "next/link";
 import { headers } from "next/headers";
 import type React from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Package, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import PlanBadge from "@/components/badges/plan-badge";
+import ProfileCard from "@/components/profile/profile-card";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Pagination,
   PaginationContent,
@@ -14,15 +11,6 @@ import {
 } from "@/components/ui/pagination";
 
 const PAGE_SIZE = 20; // 4 x 5
-
-function formatDate(date?: string | null) {
-  if (!date) return "-";
-  try {
-    return new Date(date).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
-  } catch {
-    return "-";
-  }
-}
 
 export default async function ExportadoresPage({
   searchParams,
@@ -53,6 +41,7 @@ export default async function ExportadoresPage({
     plan_label: string;
     joined_at: string | null;
     products_count: number;
+    likes_count: number;
   }>;
   const total = payload?.total || 0;
   const totalPages = payload?.total_pages || Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -72,51 +61,18 @@ export default async function ExportadoresPage({
         {/* Grid 4x5 en escritorio (20 por página) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {exporters.map((seller) => (
-            <Card key={seller.id} className="group hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden">
-              <CardContent className="p-5">
-                {/* Header: Avatar + Nombre + Plan */}
-                <div className="flex items-center gap-4 mb-3">
-                  <Avatar className="h-14 w-14">
-                    <AvatarImage src={seller.avatar_url || undefined} alt={seller.name} />
-                    <AvatarFallback>
-                      {seller.name?.[0]?.toUpperCase?.() || "E"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-lg text-gray-900 truncate group-hover:text-orange-600 transition-colors">
-                      {seller.name}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-1 text-sm">
-                      <PlanBadge planLabel={seller.plan_label} planCode={seller.plan_code} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Métricas */}
-                <div className="grid grid-cols-2 gap-4 my-4">
-                  <div className="flex items-center gap-2">
-                    <Package className="h-4 w-4 text-amber-500" />
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{(seller.products_count ?? 0)} {(seller.products_count ?? 0) === 1 ? "producto" : "productos"}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4 text-sky-600" />
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{formatDate(seller.joined_at)}</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* CTA */}
-                <Link
-                  href={`/vendedores/${seller.id}?from=exportadores${page ? `&page=${page}` : ""}`}
-                  className="block text-center text-sm rounded-md py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-100"
-                >
-                  Ver perfil
-                </Link>
-              </CardContent>
-            </Card>
+            <ProfileCard
+              key={seller.id}
+              name={seller.name}
+              avatarUrl={seller.avatar_url}
+              planCode={seller.plan_code}
+              planLabel={seller.plan_label}
+              joinedAt={seller.joined_at}
+              productsCount={seller.products_count}
+              likesCount={seller.likes_count}
+              href={`/vendedores/${seller.id}?from=exportadores${page ? `&page=${page}` : ""}`}
+              fallbackInitial="E"
+            />
           ))}
         </div>
         

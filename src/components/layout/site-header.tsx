@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X, LayoutDashboard, LogOut } from "lucide-react";
+import { LayoutDashboard, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,9 +16,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { normalizeRoleFromMetadata } from "@/lib/auth/role";
+import MessagesPush from "@/components/notifications/messages-push";
+import MessagesBell from "@/components/notifications/messages-bell";
 
 export default function SiteHeader() {
-  const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(true);
@@ -36,13 +38,15 @@ export default function SiteHeader() {
       if (mounted) setUserLoading(false);
     });
     // Suscribirse a cambios de auth
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setUserLoading(false);
     });
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      try {
+        subscription?.unsubscribe();
+      } catch {}
     };
   }, [supabase]);
 
@@ -131,6 +135,13 @@ export default function SiteHeader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.user_metadata?.full_name, user?.user_metadata?.first_name, user?.user_metadata?.last_name]);
 
+  // Rol normalizado reutilizando utilidad centralizada
+  const role = normalizeRoleFromMetadata(user?.user_metadata || {});
+  const isSeller = role === "seller";
+  const accountHref = isSeller ? "/dashboard" : "/profile";
+  const accountLabel = isSeller ? "Dashboard" : "Perfil";
+  const messagesHref = isSeller ? "/dashboard/messages" : "/mensajes";
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     router.replace("/");
@@ -189,30 +200,41 @@ export default function SiteHeader() {
               <Skeleton className="hidden h-4 w-20 sm:w-24 md:block" />
             </div>
           ) : user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-[#f06d04]/10 sm:gap-2">
-                  <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
-                    <AvatarImage src={(user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.picture} alt={displayName} />
-                    <AvatarFallback>{displayName?.[0]?.toUpperCase() || "U"}</AvatarFallback>
-                  </Avatar>
-                  <span className="hidden text-xs font-medium sm:text-sm md:inline">{displayName}</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48 sm:w-56">
-                <DropdownMenuLabel className="truncate">Bienvenido {displayName}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <Link href="/dashboard" className="focus:outline-none">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
+            <>
+              {/* Campana de notificaciones */}
+              <MessagesBell />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-[#f06d04]/10 sm:gap-2">
+                    <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
+                      <AvatarImage src={(user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.picture} alt={displayName} />
+                      <AvatarFallback>{displayName?.[0]?.toUpperCase() || "U"}</AvatarFallback>
+                    </Avatar>
+                    <span className="hidden text-xs font-medium sm:text-sm md:inline">{displayName}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48 sm:w-56">
+                  <DropdownMenuLabel className="truncate">Bienvenido {displayName}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <Link href={messagesHref} className="focus:outline-none">
+                    <DropdownMenuItem className="cursor-pointer">
+                      {/* Usamos LayoutDashboard como ícono simple aquí; podría separarse si se requiere un ícono de mensajes */}
+                      <LayoutDashboard className="mr-2 h-4 w-4" /> Mensajes
+                    </DropdownMenuItem>
+                  </Link>
+                  <DropdownMenuSeparator />
+                  <Link href={accountHref} className="focus:outline-none">
+                    <DropdownMenuItem className="cursor-pointer">
+                      <LayoutDashboard className="mr-2 h-4 w-4" /> {accountLabel}
+                    </DropdownMenuItem>
+                  </Link>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
                   </DropdownMenuItem>
-                </Link>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleSignOut}>
-                  <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           ) : (
             <>
               <Link href="/auth/login" className="text-xs text-foreground/80 hover:text-foreground sm:text-sm">Iniciar sesión</Link>
@@ -230,6 +252,8 @@ export default function SiteHeader() {
       </div>
 
       {/* Menú móvil expandido eliminado - reemplazado por menú hamburguesa global */}
+      {/* Listener de notificaciones push para mensajes (solo cuando hay usuario) */}
+      {user?.id ? <MessagesPush sellerId={user.id} /> : null}
     </header>
   );
 }

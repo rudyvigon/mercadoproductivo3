@@ -5,11 +5,11 @@ import { headers } from "next/headers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProductGallery } from "@/components/products/product-gallery";
 import { CalendarDays, MapPin, Package, ArrowLeft, Star, Tag } from "lucide-react";
 import SellerMoreProducts from "@/components/products/seller-more-products";
 import SimilarProducts from "@/components/products/similar-products";
+import SellerInfoCard from "@/components/products/seller-info-card";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -86,10 +86,7 @@ export default async function PublicProductPage({ params }: { params: { id: stri
     console.error("Failed to fetch seller info", e);
   }
 
-  const planCode = String(seller?.plan_code || "").toLowerCase();
-  const isBasic = ["gratis", "free", "basic"].includes(planCode);
-  const displayName = isBasic ? "Usuario Básico" : (seller?.company || "Vendedor");
-  const avatarInitial = (isBasic ? "U" : (seller?.company?.[0] || "V")).toUpperCase();
+  // Datos del vendedor se renderizan con SellerInfoCard
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -148,29 +145,24 @@ export default async function PublicProductPage({ params }: { params: { id: stri
           </Card>
 
           {/* Perfil del vendedor */}
-          {seller && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Vendedor</CardTitle>
-                <CardDescription>Información del perfil</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-12 w-12">
-                    <AvatarImage src={seller.avatar_url || undefined} alt={displayName} />
-                    <AvatarFallback>{avatarInitial}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-gray-900 truncate" data-testid="product-detail-seller-name">{displayName}</div>
-                    <div className="text-sm text-gray-500 truncate">{seller.city || seller.province ? `${seller.city ?? ""}${seller.city && seller.province ? ", " : ""}${seller.province ?? ""}` : "Ubicación no especificada"}</div>
-                  </div>
-                  <Button asChild variant="secondary">
-                    <Link href={`/vendedores/${product.user_id}`}>Ver perfil</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {seller && <SellerInfoCard productTitle={product.title} seller={{
+            id: product.user_id,
+            first_name: seller.first_name ?? null,
+            last_name: seller.last_name ?? null,
+            full_name: seller.full_name ?? null,
+            company: seller.company ?? null,
+            city: seller.city ?? null,
+            province: seller.province ?? null,
+            location: seller.location ?? null,
+            avatar_url: seller.avatar_url ?? null,
+            phone: seller.phone ?? null,
+            created_at: seller.created_at ?? null,
+            joined_at: seller.joined_at ?? null,
+            plan_code: seller.plan_code ?? null,
+            plan_label: seller.plan_label ?? (seller.plan_code || "Básico"),
+            products_count: seller.products_count ?? 0,
+            likes_count: seller.likes_count ?? 0,
+          }} />}
 
           {/* CTA opcionales, como contactar al vendedor, pueden añadirse aquí en el futuro */}
         </div>

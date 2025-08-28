@@ -23,6 +23,13 @@ export default async function Page() {
     redirect("/auth/login");
   }
 
+  // Si no es vendedor, redirigir al perfil público de comprador
+  const roleRawEarly = (user.user_metadata?.role || (user as any).user_metadata?.user_type || "").toString();
+  const roleEarlyNormalized = roleRawEarly === "anunciante" ? "seller" : roleRawEarly;
+  if (roleEarlyNormalized !== "seller") {
+    redirect("/profile");
+  }
+
   // Nombre para saludo
   const firstNameFromMeta = (user.user_metadata?.first_name || user.user_metadata?.firstName || user.user_metadata?.full_name || "").toString().split(" ")[0];
   const emailVerified = Boolean(user.email_confirmed_at);

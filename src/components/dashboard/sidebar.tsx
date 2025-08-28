@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, LayoutDashboard, Package, User, Menu, X, HomeIcon } from "lucide-react";
+import { CheckCircle2, LayoutDashboard, Package, User, Menu, X, HomeIcon, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { MdHomeWork } from "react-icons/md";
@@ -12,6 +12,7 @@ import { MdVerified } from "react-icons/md";
 import { MdOutlineShoppingCart } from "react-icons/md";
 import { BsFillPersonFill } from "react-icons/bs";
 import { RiShoppingCart2Fill } from "react-icons/ri";
+import { useMessagesNotifications } from "@/store/messages-notifications";
 
 
 const items = [
@@ -35,6 +36,11 @@ const items = [
     href: "/dashboard/profile",
     icon: BsFillPersonFill ,
   },
+  {
+    label: "Mensajes",
+    href: "/dashboard/messages",
+    icon: MessageSquare,
+  },
 ] as const;
 
 // Hook para detectar si el sidebar móvil debe estar visible
@@ -46,6 +52,7 @@ export function useMobileSidebar() {
 // Componente de navegación interna
 function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
   const pathname = usePathname();
+  const { unreadCount } = useMessagesNotifications();
   // Orden alfabético por etiqueta, en español y sin distinguir mayúsculas/acentos
   const navItems = [...items].sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
 
@@ -59,6 +66,7 @@ function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
           const active = href === "/dashboard"
             ? pathname === "/dashboard"
             : pathname?.startsWith(href);
+          const showUnreadDot = href === "/dashboard/messages" && unreadCount > 0;
           return (
             <Link
               key={href}
@@ -69,7 +77,12 @@ function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
                 active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
-              <Icon size={16} className="shrink-0" />
+              <div className="relative">
+                <Icon size={16} className="shrink-0" />
+                {showUnreadDot && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                )}
+              </div>
               <span>{label}</span>
             </Link>
           );

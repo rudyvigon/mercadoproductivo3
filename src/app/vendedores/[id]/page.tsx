@@ -7,6 +7,9 @@ import { Package, CalendarDays, ArrowLeft } from "lucide-react";
 import SellerProducts from "@/components/sellers/seller-products";
 import { SiGooglemaps } from "react-icons/si";
 import PlanBadge from "@/components/badges/plan-badge";
+import SellerLikeButton from "@/components/sellers/seller-like-button";
+import BuyerChatButton from "@/components/chat/buyer-chat-button";
+import WhatsAppButton from "@/components/contact/whatsapp-button";
 
 
 
@@ -66,8 +69,31 @@ export default async function VendorDetailPage({ params, searchParams }: { param
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate" data-testid="vendor-public-name">{sellerDisplayName(profile)}</h1>
                 <div className="mt-2 flex items-center gap-2">
                   <PlanBadge planLabel={profile.plan_label} planCode={profile.plan_code} />
+                  <SellerLikeButton
+                    sellerId={id}
+                    planCode={profile.plan_code}
+                    initialLikes={profile.likes_count ?? 0}
+                    size="sm"
+                  />
                 </div>
               </div>
+            </div>
+
+            {/* Acciones de contacto */}
+            <div className="mt-4 flex flex-wrap items-center gap-2 sm:justify-end">
+              <BuyerChatButton
+                sellerPlanCode={profile.plan_code}
+                sellerId={id}
+                sellerName={sellerDisplayName(profile)}
+                sellerAvatarUrl={profile.avatar_url || null}
+                size="sm"
+                buttonLabel="Enviar Mensaje"
+              />
+              <WhatsAppButton
+                sellerPlanCode={profile.plan_code}
+                sellerPhone={profile.phone}
+                size="sm"
+              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">

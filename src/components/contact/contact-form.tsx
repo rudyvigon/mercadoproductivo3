@@ -17,7 +17,7 @@ export default function ContactForm() {
     if (!values.nombre || values.nombre.trim().length < 2) errs.nombre = "Ingresa tu nombre (mín. 2 caracteres).";
     if (!values.email || !emailRegex.test(values.email)) errs.email = "Ingresa un email válido.";
     if (!values.asunto || values.asunto.trim().length < 3) errs.asunto = "Ingresa un asunto (mín. 3 caracteres).";
-    if (!values.mensaje || values.mensaje.trim().length < 10) errs.mensaje = "El mensaje debe tener al menos 10 caracteres.";
+    if (!values.mensaje || values.mensaje.trim().length < 1) errs.mensaje = "El mensaje debe tener al menos 1 carácter.";
     return { valid: Object.keys(errs).length === 0, errs };
   }
 

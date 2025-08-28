@@ -37,6 +37,10 @@ function isValidDniCuit(raw: string): boolean {
   return false;
 }
 
+function sanitizePhone(raw?: string) {
+  return String(raw || "").replace(/\D/g, "");
+}
+
 const profileSchema = z.object({
   first_name: z.string().min(1, "Requerido"),
   last_name: z.string().min(1, "Requerido"),
@@ -52,6 +56,14 @@ const profileSchema = z.object({
   city: z.string().min(1, "Requerido"),
   province: z.string().min(1, "Requerido"),
   cp: z.string().min(1, "Requerido"),
+  phone: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => {
+      const d = String(v || "").replace(/\D/g, "");
+      return d.length === 0 || (d.length >= 8 && d.length <= 15);
+    }, { message: "Ingrese un teléfono válido (8 a 15 dígitos)." }),
   // Campo Deluxe
   exportador: z.boolean().optional().default(false),
 });
@@ -62,10 +74,11 @@ type ProfileFormProps = {
   disabled?: boolean;
   hideInternalSubmit?: boolean;
   registerSubmit?: (submit: () => void) => void;
+  registerReset?: (reset: () => void) => void;
   onSaved?: () => void;
 };
 
-export default function ProfileForm({ disabled = false, hideInternalSubmit = false, registerSubmit, onSaved }: ProfileFormProps) {
+export default function ProfileForm({ disabled = false, hideInternalSubmit = false, registerSubmit, registerReset, onSaved }: ProfileFormProps) {
   const supabase = useMemo(() => createClient(), []);
   const [saving, setSaving] = useState(false);
   const [savingExportador, setSavingExportador] = useState(false);
@@ -86,6 +99,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       city: "",
       province: "",
       cp: "",
+      phone: "",
       exportador: false,
     },
   });
@@ -157,6 +171,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   const [localities, setLocalities] = useState<string[]>([]);
   const [loadingLocalities, setLoadingLocalities] = useState(false);
   const isInitializing = useRef(true);
+  const initialValuesRef = useRef<ProfileFormValues | null>(null);
 
   // Helper para cargar localidades de una provincia
   const loadLocalities = async (prov: string, preserveCity: boolean) => {
@@ -214,7 +229,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       {
         const res = await supabase
           .from("profiles")
-          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url, exportador")
+          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url, exportador, phone")
           .eq("id", user.id)
           .single();
         data = res.data; error = res.error;
@@ -224,7 +239,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         exportadorColumnExistsRef.current = false;
         const res2 = await supabase
           .from("profiles")
-          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url")
+          .select("first_name, last_name, dni_cuit, company, address, city, province, postal_code, plan_code, avatar_url, phone")
           .eq("id", user.id)
           .single();
         data = res2.data; error = res2.error;
@@ -234,7 +249,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         console.error(error);
         toast.error("No se pudo cargar el perfil");
       }
-      form.reset({
+      const initial: ProfileFormValues = {
         first_name: data?.first_name ?? (user.user_metadata?.first_name ?? ""),
         last_name: data?.last_name ?? (user.user_metadata?.last_name ?? ""),
         email: user.email ?? "",
@@ -244,8 +259,11 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         city: (data?.city ?? ""),
         province: provinceCanonical(data?.province ?? ""),
         cp: data?.postal_code ?? "",
+        phone: data?.phone ?? "",
         exportador: exportadorColumnExistsRef.current ? Boolean((data as any)?.exportador) || false : false,
-      });
+      };
+      form.reset(initial);
+      initialValuesRef.current = initial;
       existingPlanCodeRef.current = (data?.plan_code ?? null) as any;
       setAvatarUrl(data?.avatar_url ?? null);
       // Cargar localidades para la provincia reseteada y preservar la ciudad existente
@@ -353,6 +371,10 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       if (typeof saved?.exportador === "boolean") {
         // Sincronizar por si el trigger lo ajustó
         form.setValue("exportador", saved.exportador, { shouldDirty: false, shouldTouch: false });
+        // Mantener snapshot inicial actualizado para que Cancelar no revierta cambios ya persistidos
+        if (initialValuesRef.current) {
+          initialValuesRef.current.exportador = saved.exportador;
+        }
       }
     } catch (e: any) {
       console.error("Perfil: error al guardar toggle exportador", e);
@@ -384,11 +406,12 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
         city: values.city,
         province: values.province,
         postal_code: values.cp,
+        phone: sanitizePhone(values.phone || ""),
         updated_at: new Date().toISOString(),
       };
       // Persistir exportador sólo si el plan es Deluxe (o sinónimos/variantes)
       const planLower = (existingPlanCodeRef.current || "").toLowerCase();
-      const isDeluxe = hasExportadorCapability(planLower);
+      const isDeluxe = (planLower.includes("deluxe") || planLower.includes("diamond") || planLower === "premium" || planLower === "pro");
       if (exportadorColumnExistsRef.current) {
         payload.exportador = isDeluxe ? Boolean(values.exportador) : false;
       }
@@ -414,6 +437,26 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       if (exportadorColumnExistsRef.current && typeof saved?.exportador === "boolean") {
         form.setValue("exportador", saved.exportador, { shouldDirty: false, shouldTouch: false });
       }
+      // Actualizar snapshot inicial con los valores guardados
+      try {
+        const currentEmail = form.getValues("email");
+        const snapshot: ProfileFormValues = {
+          first_name: values.first_name,
+          last_name: values.last_name,
+          email: currentEmail,
+          dni_cuit: dniCuitSanitized,
+          company: values.company ?? "",
+          address: values.address,
+          city: values.city,
+          province: values.province,
+          cp: values.cp,
+          phone: sanitizePhone(values.phone || ""),
+          exportador: exportadorColumnExistsRef.current
+            ? (typeof saved?.exportador === "boolean" ? saved.exportador : Boolean(values.exportador))
+            : false,
+        };
+        initialValuesRef.current = snapshot;
+      } catch {}
       // Actualizar metadata de auth para reflejar el nombre en listeners de auth
       try {
         await supabase.auth.updateUser({
@@ -448,6 +491,28 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     const submit = () => form.handleSubmit(onSubmit)();
     registerSubmit(submit);
   }, [form, registerSubmit, onSubmit]);
+
+  // Exponer reset externo (para botón Cancelar en el contenedor)
+  useEffect(() => {
+    if (!registerReset) return;
+    const reset = () => {
+      if (initialValuesRef.current) {
+        const initial = initialValuesRef.current;
+        form.reset(initial);
+        // Recalcular localidades para la provincia restaurada y preservar la ciudad restaurada
+        const prov = initial.province;
+        if (prov) {
+          void loadLocalities(prov, true);
+        } else {
+          setLocalities([]);
+        }
+      } else {
+        // Fallback por seguridad
+        form.reset(form.getValues());
+      }
+    };
+    registerReset(reset);
+  }, [form, registerReset]);
 
   if (loading) {
     return (
@@ -496,14 +561,14 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
 
   const allDisabled = disabled || saving;
   const planCodeLower = (existingPlanCodeRef.current || "").toLowerCase();
-  const hasExportadorCapability = (code: string) => {
+  function hasExportadorCapability(code: string) {
     const c = (code || "").toLowerCase();
     // Soporta variantes como 'deluxe_monthly'/'deluxe_yearly' y sinónimos como 'diamond'.
     if (!c) return false;
     if (c.includes("deluxe") || c.includes("diamond")) return true;
     // Compatibilidad histórica: permitir premium/pro si así se configuró el backend
     return c === "premium" || c === "pro";
-  };
+  }
   const canToggleExportador = exportadorColumnExistsRef.current && hasExportadorCapability(planCodeLower);
 
   return (
@@ -747,6 +812,28 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
           {form.getFieldState("cp", form.formState).error && (
             <p id="cp-error" className="text-xs text-red-600">
               {form.getFieldState("cp", form.formState).error?.message}
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label
+            htmlFor="phone"
+            className={form.getFieldState("phone", form.formState).error ? "text-red-600" : undefined}
+          >
+            Teléfono (WhatsApp)
+          </Label>
+          <Input
+            id="phone"
+            {...form.register("phone")}
+            {...fieldAttrs("phone")}
+            placeholder="Incluye el código de país. Ej: +54 9 11 1234 5678"
+            aria-describedby="phone-error"
+            disabled={allDisabled}
+            className={form.getFieldState("phone", form.formState).error ? "border-red-500 focus-visible:ring-red-500" : undefined}
+          />
+          {form.getFieldState("phone", form.formState).error && (
+            <p id="phone-error" className="text-xs text-red-600">
+              {form.getFieldState("phone", form.formState).error?.message}
             </p>
           )}
         </div>

@@ -92,6 +92,17 @@ export async function GET(req: Request) {
       );
     }
 
+    // Obtener conteo de likes para los exportadores listados
+    const sellerIds = (data || []).map((row: any) => row.seller_id);
+    let likesById = new Map<string, number>();
+    if (sellerIds.length > 0) {
+      const { data: likeRows } = await supabase
+        .from("v_profile_likes_count")
+        .select("seller_id, likes_count")
+        .in("seller_id", sellerIds);
+      likesById = new Map((likeRows || []).map((r: any) => [r.seller_id, r.likes_count || 0]));
+    }
+
     const items = (data || []).map((row: any) => {
       const name = (row.company || row.full_name || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Vendedor").toString();
       const codeLower = String(row.plan_code || "").toLowerCase();
@@ -104,6 +115,7 @@ export async function GET(req: Request) {
         plan_label: planName || planCodeToLabel(row.plan_code),
         joined_at: row.joined_at,
         products_count: row.products_count ?? 0,
+        likes_count: likesById.get(row.seller_id) || 0,
         city: row.city ?? null,
         province: row.province ?? null,
         updated_at: row.updated_at,
