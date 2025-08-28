@@ -192,6 +192,16 @@ export default function BuyerConversationWindow({
     ch.bind("message:read", onMessageRead);
     ch.bind("reply:delivered", onReplyDelivered);
     ch.bind("reply:read", onReplyRead);
+    const onMessageDeleted = (evt: any) => {
+      const id = `msg-${evt?.id}`;
+      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
+    };
+    const onReplyDeleted = (evt: any) => {
+      const id = `rep-${evt?.id}`;
+      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
+    };
+    ch.bind("message:deleted", onMessageDeleted);
+    ch.bind("reply:deleted", onReplyDeleted);
     return () => {
       ch.unbind("message:new", onMessageNew);
       ch.unbind("reply:new", onReplyNew);
@@ -199,6 +209,8 @@ export default function BuyerConversationWindow({
       ch.unbind("message:read", onMessageRead);
       ch.unbind("reply:delivered", onReplyDelivered);
       ch.unbind("reply:read", onReplyRead);
+      ch.unbind("message:deleted", onMessageDeleted);
+      ch.unbind("reply:deleted", onReplyDeleted);
       getPusherClient()?.unsubscribe(channel);
     };
   }, [open, sellerId, currentUserEmail]);
@@ -240,6 +252,11 @@ export default function BuyerConversationWindow({
     if (evt.kind === "message") setThreadId(evt.message_id);
   }
 
+  function handleDeletedLocal(id: string, kind: "msg" | "rep") {
+    const fullId = `${kind}-${id}`;
+    setTimeline((prev) => prev.map((it) => (it.id === fullId ? { ...it, deleted: true } : it)));
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] w-[96vw] max-w-2xl flex-col p-0">
@@ -262,7 +279,7 @@ export default function BuyerConversationWindow({
             ) : timeline.length === 0 ? (
               <div className="p-3 text-sm text-muted-foreground">Inicia la conversación</div>
             ) : (
-              <ChatMessages items={timeline} />
+              <ChatMessages items={timeline} onDeleted={handleDeletedLocal} />
             )}
           </div>
           <div className="border-t p-3">

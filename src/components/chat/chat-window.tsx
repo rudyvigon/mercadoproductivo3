@@ -171,13 +171,30 @@ export default function ChatWindow({
       setTimeline((prev) => prev.map((it) => (it.id === id && it.type === "outgoing" ? { ...it, delivery_status: "read" } : it)));
     };
 
+    const onMessageDeleted = (evt: any) => {
+      // Asegurar conversación correcta
+      if (evt?.sender_email && evt.sender_email !== contactEmail) return;
+      const id = `msg-${evt?.id}`;
+      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
+    };
+    const onReplyDeleted = (evt: any) => {
+      // Verificar que el reply pertenezca al hilo abierto
+      if (evt?.message_id && !messageIds.has(evt.message_id)) return;
+      const id = `rep-${evt?.id}`;
+      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
+    };
+
     ch.bind("message:new", onNew);
     ch.bind("reply:new", onReply);
+    ch.bind("message:deleted", onMessageDeleted);
+    ch.bind("reply:deleted", onReplyDeleted);
     ch.bind("reply:delivered", onReplyDelivered);
     ch.bind("reply:read", onReplyRead);
     return () => {
       ch.unbind("message:new", onNew);
       ch.unbind("reply:new", onReply);
+      ch.unbind("message:deleted", onMessageDeleted);
+      ch.unbind("reply:deleted", onReplyDeleted);
       ch.unbind("reply:delivered", onReplyDelivered);
       ch.unbind("reply:read", onReplyRead);
       getPusherClient()?.unsubscribe(`private-seller-${sellerId}`);
@@ -222,6 +239,11 @@ export default function ChatWindow({
     }
   }
 
+  function handleDeletedLocal(id: string, kind: "msg" | "rep") {
+    const fullId = `${kind}-${id}`;
+    setTimeline((prev) => prev.map((it) => (it.id === fullId ? { ...it, deleted: true } : it)));
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] w-[96vw] max-w-2xl flex-col p-0">
@@ -244,7 +266,7 @@ export default function ChatWindow({
             ) : timeline.length === 0 ? (
               <div className="p-3 text-sm text-muted-foreground">No hay mensajes en esta conversación.</div>
             ) : (
-              <ChatMessages items={timeline} />
+              <ChatMessages items={timeline} onDeleted={handleDeletedLocal} />
             )}
           </div>
           <div className="border-t p-3">

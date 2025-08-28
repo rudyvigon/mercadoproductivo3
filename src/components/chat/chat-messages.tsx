@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export type ChatItem = {
   id: string;
@@ -11,9 +12,34 @@ export type ChatItem = {
   sender_name?: string;
   sender_email?: string;
   delivery_status?: "sent" | "delivered" | "read";
+  deleted?: boolean;
 };
 
-export default function ChatMessages({ items }: { items: ChatItem[] }) {
+export default function ChatMessages({
+  items,
+  onDeleted,
+}: {
+  items: ChatItem[];
+  onDeleted?: (id: string, kind: "msg" | "rep", messageId?: string) => void;
+}) {
+  async function handleDelete(it: ChatItem) {
+    try {
+      const isMsg = it.id.startsWith("msg-");
+      const rawId = isMsg ? it.id.slice(4) : it.id.slice(4);
+      if (!rawId) return;
+      const ok = typeof window !== "undefined" ? window.confirm("¿Eliminar este mensaje?") : true;
+      if (!ok) return;
+      const url = isMsg ? `/api/messages/${rawId}` : `/api/replies/${rawId}`;
+      const res = await fetch(url, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || `HTTP_${res.status}`);
+      }
+      onDeleted?.(rawId, isMsg ? "msg" : "rep", it.message_id || rawId);
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo eliminar");
+    }
+  }
   return (
     <div className="flex flex-col gap-2">
       {items.map((it) => (
@@ -28,17 +54,28 @@ export default function ChatMessages({ items }: { items: ChatItem[] }) {
             )}
             title={new Date(it.created_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}
           >
-            <div className="whitespace-pre-wrap break-words">{it.body}</div>
+            <div className={cn("whitespace-pre-wrap break-words", it.deleted ? "italic opacity-70" : "")}>{it.deleted ? "Mensaje eliminado" : it.body}</div>
             <div
               className={cn(
                 "mt-1 flex items-center gap-1 text-[10px] opacity-70",
                 it.type === "incoming" ? "text-foreground" : "text-primary-foreground"
               )}
             >
+              {it.type === "outgoing" && !it.deleted && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(it)}
+                  className={cn("mr-2 underline decoration-dotted hover:opacity-100 opacity-90")}
+                  title="Eliminar"
+                  aria-label="Eliminar"
+                >
+                  Eliminar
+                </button>
+              )}
               <span>
                 {new Date(it.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
               </span>
-              {it.type === "outgoing" && (
+              {it.type === "outgoing" && !it.deleted && (
                 <span
                   className={cn(
                     "ml-1",

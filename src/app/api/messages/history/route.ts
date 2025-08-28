@@ -31,9 +31,10 @@ export async function GET(req: Request) {
     if (user.id !== sellerId) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     const { data: msgs, error } = await supabase
       .from("messages")
-      .select("id, created_at, seller_id, sender_name, sender_email, sender_phone, subject, body, status, delivery_status")
+      .select("id, created_at, seller_id, sender_name, sender_email, sender_phone, subject, body, status, delivery_status, deleted_at")
       .eq("seller_id", sellerId)
       .eq("sender_email", email)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .limit(limit);
 
@@ -47,8 +48,9 @@ export async function GET(req: Request) {
     if (messageIds.length > 0) {
       const { data: reps, error: repErr } = await supabase
         .from("message_replies")
-        .select("id, created_at, body, message_id, sender_id, delivery_status")
-        .in("message_id", messageIds);
+        .select("id, created_at, body, message_id, sender_id, delivery_status, deleted_at")
+        .in("message_id", messageIds)
+        .is("deleted_at", null);
       if (repErr) {
         console.warn("[messages/history] replies select warn", repErr.message);
       } else {

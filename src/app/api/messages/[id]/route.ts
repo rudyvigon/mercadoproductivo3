@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getPusher } from "@/lib/pusher/server";
+import { emailSlug } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,6 +16,64 @@ function planTier(plan?: string | null): "basic" | "plus" | "premium" | "deluxe"
   if (c.includes("plus") || c === "enterprise") return "plus";
   if (c === "premium" || c === "pro") return "premium";
   return "basic";
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const supabase = createRouteClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
+    const admin = createAdminClient();
+    // Cargar datos mínimos del mensaje
+    const { data: msg, error: msgErr } = await admin
+      .from("messages")
+      .select("id, seller_id, sender_email, deleted_at")
+      .eq("id", params.id)
+      .maybeSingle();
+
+    if (msgErr) return NextResponse.json({ error: "DB_ERROR", details: msgErr.message }, { status: 500 });
+    if (!msg) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+
+    const senderEmail = String((msg as any).sender_email || "");
+    // Solo el comprador (dueño del mensaje) puede borrar su mensaje
+    if (!user.email || senderEmail.toLowerCase() !== (user.email || "").toLowerCase()) {
+      return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+    }
+    // Idempotencia: si ya está borrado, responder ok
+    if ((msg as any).deleted_at) {
+      return NextResponse.json({ ok: true, id: params.id });
+    }
+
+    const { data: upd, error: updErr } = await admin
+      .from("messages")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: user.id })
+      .eq("id", params.id)
+      .select("id, seller_id, sender_email")
+      .maybeSingle();
+
+    if (updErr) return NextResponse.json({ error: "DB_UPDATE_ERROR", details: updErr.message }, { status: 500 });
+
+    try {
+      const pusher = getPusher();
+      const payload = { id: params.id, sender_email: (upd as any)?.sender_email } as any;
+      await pusher.trigger(`private-seller-${(upd as any)?.seller_id}` as string, "message:deleted", payload);
+      await pusher.trigger(
+        `private-thread-${(upd as any)?.seller_id}-${emailSlug(String((upd as any)?.sender_email || ""))}` as string,
+        "message:deleted",
+        payload
+      );
+    } catch (ev) {
+      console.warn("[/api/messages/[id]] pusher trigger (deleted) failed", ev);
+    }
+
+    return NextResponse.json({ ok: true, id: params.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: "SERVER_ERROR", message: e?.message || "" }, { status: 500 });
+  }
 }
 
 function isAllowedPlan(plan?: string | null) {

@@ -25,9 +25,10 @@ export async function GET(req: Request) {
     const email = user.email || "";
     const { data: msgs, error } = await supabase
       .from("messages")
-      .select("id, created_at, seller_id, sender_name, sender_email, sender_phone, subject, body, status, delivery_status")
+      .select("id, created_at, seller_id, sender_name, sender_email, sender_phone, subject, body, status, delivery_status, deleted_at")
       .eq("seller_id", sellerId)
       .eq("sender_email", email)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -40,8 +41,9 @@ export async function GET(req: Request) {
     if (messageIds.length > 0) {
       const { data: reps, error: repErr } = await supabase
         .from("message_replies")
-        .select("id, created_at, body, message_id, sender_id, delivery_status")
-        .in("message_id", messageIds);
+        .select("id, created_at, body, message_id, sender_id, delivery_status, deleted_at")
+        .in("message_id", messageIds)
+        .is("deleted_at", null);
       if (repErr) {
         console.warn("[messages/history/buyer] replies select warn", repErr.message);
       } else {
