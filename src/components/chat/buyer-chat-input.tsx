@@ -43,7 +43,8 @@ export default function BuyerChatInput({
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || data?.error || "No se pudo enviar");
         const id = String(data?.id);
-        onSent({ kind: "message", id, message_id: id, body, created_at: new Date().toISOString() });
+        const created_at = String(data?.created_at || new Date().toISOString());
+        onSent({ kind: "message", id, message_id: id, body, created_at });
         setValue("");
       } else {
         // Responder en hilo existente
@@ -55,7 +56,8 @@ export default function BuyerChatInput({
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || data?.error || "No se pudo enviar");
         const id = String(data?.reply_id);
-        onSent({ kind: "reply", id, message_id: threadId, body, created_at: new Date().toISOString() });
+        const created_at = String(data?.created_at || new Date().toISOString());
+        onSent({ kind: "reply", id, message_id: threadId, body, created_at });
         setValue("");
       }
     } catch (e: any) {

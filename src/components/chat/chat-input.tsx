@@ -52,7 +52,7 @@ export default function ChatInput({
           if (data?.id && data?.reply_id) {
             const payload: ReplyPayload = {
               id: String(data.reply_id),
-              created_at: new Date().toISOString(),
+              created_at: String(data?.reply_created_at || new Date().toISOString()),
               message_id: String(data.id),
               body,
               sender_id: "self",
@@ -73,7 +73,7 @@ export default function ChatInput({
             // Consideramos el id del mensaje inicial como message_id para futuras respuestas.
             const payload: ReplyPayload = {
               id: String(data.id),
-              created_at: new Date().toISOString(),
+              created_at: String(data?.created_at || new Date().toISOString()),
               message_id: String(data.id),
               body,
               sender_id: "self",
@@ -106,7 +106,7 @@ export default function ChatInput({
         // No dependemos del realtime para actualizar la UI inmediatamente.
         const payload: ReplyPayload = {
           id: String(data.reply_id),
-          created_at: new Date().toISOString(),
+          created_at: String(data?.created_at || new Date().toISOString()),
           message_id: messageId,
           body,
           sender_id: "self",

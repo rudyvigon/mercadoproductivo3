@@ -109,7 +109,13 @@ export async function POST(req: Request) {
       console.warn("[/api/messages/start-by-seller] pusher trigger failed", ev);
     }
 
-    return NextResponse.json({ ok: true, id: insMsg.id, reply_id: insRep.id });
+    return NextResponse.json({
+      ok: true,
+      id: insMsg.id,
+      created_at: insMsg.created_at,
+      reply_id: insRep.id,
+      reply_created_at: insRep.created_at,
+    });
   } catch (e: any) {
     console.error("[/api/messages/start-by-seller] error", e);
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 });

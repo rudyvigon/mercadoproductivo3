@@ -111,7 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       console.warn("[/api/messages/[id]/reply] pusher trigger failed", ev);
     }
 
-    return NextResponse.json({ ok: true, reply_id: ins?.id });
+    return NextResponse.json({ ok: true, reply_id: ins?.id, created_at: ins?.created_at });
   } catch (e: any) {
     return NextResponse.json({ error: "SERVER_ERROR", message: e?.message || "" }, { status: 500 });
   }

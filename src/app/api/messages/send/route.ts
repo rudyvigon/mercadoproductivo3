@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       console.warn("[/api/messages/send] pusher trigger failed", ev);
     }
 
-    return NextResponse.json({ ok: true, id: ins?.id });
+    return NextResponse.json({ ok: true, id: ins?.id, created_at: ins?.created_at });
   } catch (e: any) {
     console.error("[/api/messages/send] error", e);
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 });

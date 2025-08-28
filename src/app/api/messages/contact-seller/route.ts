@@ -195,7 +195,7 @@ export async function POST(req: Request) {
         sender_ip: senderIp?.slice(0, 128) || null,
         status: "new",
       })
-      .select("id")
+      .select("id, created_at")
       .single();
 
     if (insErr) {
@@ -226,7 +226,7 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, id: ins?.id });
+    return NextResponse.json({ ok: true, id: ins?.id, created_at: (ins as any)?.created_at });
   } catch (e: any) {
     console.error("[messages/contact-seller] error", e);
     return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 });
