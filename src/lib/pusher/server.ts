@@ -10,7 +10,6 @@ export function getPusher() {
   const cluster = process.env.PUSHER_CLUSTER;
 
   if (!appId || !key || !secret || !cluster) {
-    console.error("[PUSHER] Faltan variables de entorno: PUSHER_APP_ID, PUSHER_KEY, PUSHER_SECRET, PUSHER_CLUSTER");
     throw new Error("CONFIG_ERROR_PUSHER_ENV");
   }
 

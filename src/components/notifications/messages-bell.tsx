@@ -20,19 +20,31 @@ export default function MessagesBell() {
     let active = true;
     async function load() {
       try {
-        const [unreadRes, recentRes] = await Promise.all([
-          fetch(`/api/messages?status=new&pageSize=1`, { cache: "no-store" }),
-          fetch(`/api/messages?pageSize=5`, { cache: "no-store" }),
-        ]);
+        const res = await fetch(`/api/chat/conversations`, { cache: "no-store" });
         if (!active) return;
-        if (unreadRes.ok) {
-          const j = await unreadRes.json();
-          if (typeof j?.total === "number") setUnreadCount(j.total);
-        }
-        if (recentRes.ok) {
-          const j = await recentRes.json();
-          if (Array.isArray(j?.items)) setRecent(j.items);
-        }
+        if (!res.ok) return;
+        const j = await res.json();
+        const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+        // no leídos totales
+        const unread = list.reduce((acc, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
+        setUnreadCount(unread);
+        // recientes (top 5)
+        const ts = (it: any) => String(it?.last_created_at || it?.last_at || it?.updated_at || it?.created_at || "");
+        const getText = (it: any) =>
+          String(it?.preview || it?.last_subject || it?.last_message || it?.last_body || it?.topic || "Nueva actividad");
+        const getName = (it: any) => String(it?.counterparty_name || it?.title || it?.topic || "—");
+        const recentItems = [...list]
+          .sort((a, b) => new Date(ts(b)).getTime() - new Date(ts(a)).getTime())
+          .slice(0, 5)
+          .map((c: any) => ({
+            id: String(c?.id || c?.conversation_id || `${ts(c)}-${Math.random().toString(36).slice(2)}`),
+            created_at: ts(c),
+            seller_id: String(c?.owner_id || c?.user_id || ""),
+            sender_name: getName(c),
+            subject: getText(c),
+            body: undefined as string | undefined,
+          }));
+        setRecent(recentItems);
       } catch {
         // ignore network/auth errors
       }
@@ -74,7 +86,7 @@ export default function MessagesBell() {
           <div className="max-h-96 overflow-y-auto py-1">
             {recent.map((m) => (
               <DropdownMenuItem key={m.id} className="flex flex-col items-start gap-0.5 py-2">
-                <div className="w-full truncate text-sm font-medium">{m.sender_name || "Contacto"}</div>
+                <div className="w-full truncate text-sm font-medium">{m.sender_name || "—"}</div>
                 <div className="w-full truncate text-xs text-muted-foreground">{m.subject || "Nuevo mensaje"}</div>
               </DropdownMenuItem>
             ))}
@@ -88,3 +100,4 @@ export default function MessagesBell() {
     </DropdownMenu>
   );
 }
+

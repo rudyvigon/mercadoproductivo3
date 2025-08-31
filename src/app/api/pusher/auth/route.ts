@@ -1,68 +1,94 @@
 import { NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabase/server";
 import { getPusher } from "@/lib/pusher/server";
-import { emailSlug } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
-const isDev = process.env.NODE_ENV !== "production";
-
-function forbidden(reason: string, extra?: Record<string, any>) {
-  try {
-    // Log solo en servidor para diagnóstico
-    console.warn("[/api/pusher/auth] FORBIDDEN", { reason, ...(extra || {}) });
-  } catch {}
-  const payload = isDev ? { error: "FORBIDDEN", reason, ...(extra || {}) } : { error: "FORBIDDEN" };
-  return NextResponse.json(payload, { status: 403 });
-}
-
 export async function POST(req: Request) {
+  if (process.env.FEATURE_CHAT_V2_ENABLED !== "true") {
+    return NextResponse.json(
+      { error: "CHAT_DESHABILITADO", message: "El sistema de chat v2 está temporalmente deshabilitado." },
+      { status: 410 }
+    );
+  }
+
   try {
-    // Pusher envía application/x-www-form-urlencoded
-    const form = await req.formData();
-    const socketId = String(form.get("socket_id") || "").trim();
-    const channelName = String(form.get("channel_name") || "").trim();
-
-    if (!socketId || !channelName) return NextResponse.json({ error: "BAD_REQUEST" }, { status: 400 });
-
     const supabase = createRouteClient();
     const {
       data: { user },
+      error: userErr,
     } = await supabase.auth.getUser();
+    if (userErr || !user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-    if (!user) return forbidden("NO_USER", { socketId, channelName });
-
-    // Autorizamos solo canales privados del vendedor autenticado: private-seller-{sellerId}
-    if (channelName.startsWith("private-seller-")) {
-      const parts = channelName.split("-");
-      const sellerId = parts.slice(2).join("-");
-      if (!sellerId || sellerId !== user.id) return forbidden("SELLER_ID_MISMATCH", { socketId, channelName, userId: user.id });
-    } else if (channelName.startsWith("private-thread-")) {
-      // Canal de hilo comprador: private-thread-{sellerId}-{emailSlug}
-      // Validar por sufijo para evitar ambigüedad con guiones en sellerId o slug
-      const expected = emailSlug(user.email || "");
-      if (!expected) return forbidden("THREAD_SLUG_EMPTY", { socketId, channelName, userId: user.id });
-      const prefix = "private-thread-";
-      const suffix = `-${expected}`;
-      if (!channelName.startsWith(prefix)) return forbidden("THREAD_MALFORMED", { socketId, channelName, userId: user.id });
-      if (!channelName.endsWith(suffix)) {
-        const got = channelName.slice(channelName.lastIndexOf("-") + 1);
-        return forbidden("THREAD_SLUG_MISMATCH", { socketId, channelName, userId: user.id, expected, got });
+    // pusher-js (v8) puede enviar JSON camelCase (socketId/channelName) o snake_case (socket_id/channel_name)
+    // además, contemplamos formData y cuerpos urlencoded. Importante: leer body una sola vez según Content-Type.
+    const ct = (req.headers.get("content-type") || "").toLowerCase();
+    let payload: any = {};
+    try {
+      if (ct.includes("application/json")) {
+        payload = await req.json();
+      } else if (ct.includes("multipart/form-data")) {
+        const form = await req.formData();
+        payload = Object.fromEntries(form.entries());
+      } else if (ct.includes("application/x-www-form-urlencoded")) {
+        const text = await req.text();
+        const params = new URLSearchParams(text || "");
+        payload = Object.fromEntries(params.entries());
+      } else {
+        // Intento final: leer texto y parsear si posible
+        const text = await req.text();
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          const params = new URLSearchParams(text || "");
+          payload = Object.fromEntries(params.entries());
+        }
       }
-      const sellerId = channelName.slice(prefix.length, channelName.length - suffix.length);
-      if (!sellerId) return forbidden("THREAD_NO_SELLER", { socketId, channelName, userId: user.id });
-    } else {
-      // Bloquear otros patrones
-      return forbidden("UNKNOWN_CHANNEL", { socketId, channelName, userId: user.id });
+    } catch {
+      // si algo falla, payload queda {}
     }
 
-    const pusher = getPusher();
-    const auth = pusher.authorizeChannel(socketId, channelName);
+    const socketId = String(
+      (payload?.socket_id ?? payload?.socketId ?? payload?.socketid ?? payload?.socket) || ""
+    ).trim();
+    const channelName = String(
+      (payload?.channel_name ?? payload?.channelName ?? payload?.channel ?? payload?.channelname) || ""
+    ).trim();
+    if (!socketId || !channelName) {
+      return NextResponse.json({ error: "BAD_REQUEST", message: "Faltan socket_id o channel_name" }, { status: 400 });
+    }
+
+    // Validación de canal privado
+    if (!channelName.startsWith("private-")) {
+      return NextResponse.json({ error: "BAD_CHANNEL", message: "Solo se permiten canales privados" }, { status: 400 });
+    }
+
+    if (channelName.startsWith("private-user-")) {
+      const userId = channelName.replace("private-user-", "");
+      if (userId !== user.id) {
+        return NextResponse.json({ error: "FORBIDDEN", message: "No autorizado a este canal de usuario" }, { status: 403 });
+      }
+    } else if (channelName.startsWith("private-conversation-")) {
+      const conversationId = channelName.replace("private-conversation-", "");
+      const { data: mem, error: memErr } = await supabase
+        .from("chat_conversation_members")
+        .select("conversation_id")
+        .eq("conversation_id", conversationId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (memErr) return NextResponse.json({ error: "MEMBERSHIP_CHECK_FAILED" }, { status: 500 });
+      if (!mem) return NextResponse.json({ error: "FORBIDDEN", message: "No miembro de la conversación" }, { status: 403 });
+    } else {
+      return NextResponse.json({ error: "UNKNOWN_CHANNEL", message: "Formato de canal no soportado" }, { status: 400 });
+    }
+
+    // Autorizar con Pusher server SDK
+    const p = getPusher();
+    const auth = p.authorizeChannel(socketId, channelName);
     return NextResponse.json(auth);
   } catch (e: any) {
-    console.error("[/api/pusher/auth] error", e);
-    return NextResponse.json({ error: "INTERNAL_ERROR" }, { status: 500 });
+    return NextResponse.json({ error: "INTERNAL_ERROR", message: e?.message || String(e) }, { status: 500 });
   }
 }
 

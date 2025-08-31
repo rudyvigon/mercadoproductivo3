@@ -1,57 +1,49 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { getPusherClient, subscribePrivate } from "@/lib/pusher/client";
-import { toast } from "sonner";
-import { usePathname } from "next/navigation";
 import { useMessagesNotifications } from "@/store/messages-notifications";
+import { toast } from "sonner";
 
-// Tipado mínimo del mensaje para la notificación
-type Message = {
-  id: string;
-  created_at?: string;
-  seller_id: string;
-  sender_name: string;
-  sender_email?: string;
-  subject: string;
-  body?: string;
-};
+export default function MessagesPush({ sellerId, messagesHref }: { sellerId?: string | null; messagesHref?: string }) {
+  const { setUnreadCount, setRecent } = useMessagesNotifications();
 
-function supportsNotifications() {
-  return typeof window !== "undefined" && "Notification" in window;
-}
-
-async function ensurePermission(): Promise<boolean> {
-  if (!supportsNotifications()) return false;
-  try {
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
-    const perm = await Notification.requestPermission();
-    return perm === "granted";
-  } catch {
-    return false;
-  }
-}
-
-function showBrowserNotification(msg: Message) {
-  if (!supportsNotifications() || Notification.permission !== "granted") return false;
-  try {
-    const n = new Notification(`Nuevo mensaje de ${msg.sender_name || "Contacto"}`, {
-      body: msg.subject || "Has recibido un nuevo mensaje",
-    });
-    n.onclick = () => {
-      window.focus();
-      window.location.assign("/dashboard/messages");
-    };
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export default function MessagesPush({ sellerId }: { sellerId?: string | null }) {
-  const pathname = usePathname();
-  const { bumpUnread, prependRecent, setUnreadCount, setRecent } = useMessagesNotifications();
+  // Snapshot de inbox Chat v2: total no leídos y últimos 5
+  const refreshInboxSnapshot = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/conversations`, { cache: "no-store" });
+      if (!res.ok) return;
+      const j = await res.json();
+      const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+      // Calcular no leídos (solo conversaciones visibles, consistente con messages-inbox-v2)
+      const unread = list
+        .filter((it: any) => !it?.hidden_at)
+        .reduce((acc, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
+      setUnreadCount(unread);
+      // Mapear recientes (top 5 por última actividad)
+      const ts = (it: any) =>
+        String(it?.last_created_at || it?.last_at || it?.updated_at || it?.created_at || "");
+      const getText = (it: any) =>
+        String(
+          it?.preview || it?.last_subject || it?.last_message || it?.last_body || it?.topic || "Nueva actividad"
+        );
+      const getName = (it: any) => String(it?.counterparty_name || it?.title || it?.topic || "—");
+      const recentItems = [...list]
+        .sort((a, b) => new Date(ts(b)).getTime() - new Date(ts(a)).getTime())
+        .slice(0, 5)
+        .map((c: any) => ({
+          id: String(c?.id || c?.conversation_id || `${ts(c)}-${Math.random().toString(36).slice(2)}`),
+          created_at: ts(c),
+          seller_id: String(c?.owner_id || c?.user_id || ""),
+          sender_name: getName(c),
+          subject: getText(c),
+          body: undefined as string | undefined,
+        }));
+      setRecent(recentItems);
+    } catch {
+      // ignorar errores de red/auth
+    }
+  }, [setUnreadCount, setRecent]);
 
   useEffect(() => {
     if (!sellerId) return;
@@ -59,71 +51,86 @@ export default function MessagesPush({ sellerId }: { sellerId?: string | null })
     const client = getPusherClient();
     if (!client) return;
 
-    const channelName = `private-seller-${sellerId}`;
+    // Chat v2: canal por usuario autenticado
+    const channelName = `private-user-${sellerId}`;
     const ch = subscribePrivate(channelName);
     if (!ch) return;
 
-    const onNew = async (msg: Message) => {
-      const onInbox = pathname?.startsWith("/dashboard/messages");
-      // Actualizar store: sumar no leídos y agregar a recientes
-      prependRecent({
-        id: msg.id,
-        created_at: msg.created_at,
-        seller_id: msg.seller_id,
-        sender_name: msg.sender_name,
-        subject: msg.subject,
-        body: msg.body,
-      });
-      bumpUnread(1);
-      if (onInbox) {
-        // En la bandeja, solo toast (no notificación del navegador)
-        toast.message("Nuevo mensaje recibido", {
-          description: msg.subject || msg.sender_name,
-        });
-        return;
-      }
-      const canNotify = await ensurePermission();
-      const notified = canNotify ? showBrowserNotification(msg) : false;
-      if (!notified) {
-        toast.info("Nuevo mensaje recibido", {
-          description: msg.subject || msg.sender_name,
+    // Eventos Chat v2 relevantes en canal de usuario
+    const onConvUpdated = async (evt: any) => {
+      await refreshInboxSnapshot();
+      // Mostrar toast con el nombre del remitente/conversación y permitir clic para ir a mensajes
+      try {
+        const convId = String(evt?.conversation_id || "");
+        if (!convId) return;
+        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
+        if (!res.ok) return;
+        const j = await res.json();
+        const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+        const conv = list.find((c: any) => String(c?.id || c?.conversation_id) === convId);
+        const name =
+          String(conv?.counterparty_name || conv?.title || conv?.topic || "Usuario").trim() || "Usuario";
+        const preview = String(
+          conv?.preview || conv?.last_subject || conv?.last_message || conv?.last_body || "Nuevo mensaje"
+        );
+        toast(`Tienes un mensaje nuevo`, {
+          description: preview,
+          duration: 4500,
           action: {
-            label: "Abrir",
-            onClick: () => (window.location.href = "/dashboard/messages"),
+            label: "Ver mensajes",
+            onClick: () => {
+              try {
+                window.location.href = messagesHref || "/dashboard/messages";
+              } catch {}
+            },
           },
         });
+      } catch {
+        // ignorar errores del toast
       }
     };
-
-    const onUpdated = async (_payload: { id: string; status: string }) => {
-      try {
-        // Recalcular contador y últimas 5 para evitar inconsistencias
-        const [unreadRes, recentRes] = await Promise.all([
-          fetch(`/api/messages?status=new&pageSize=1`, { cache: "no-store" }),
-          fetch(`/api/messages?pageSize=5`, { cache: "no-store" }),
-        ]);
-        if (unreadRes.ok) {
-          const j = await unreadRes.json();
-          if (typeof j?.total === "number") setUnreadCount(j.total);
-        }
-        if (recentRes.ok) {
-          const j = await recentRes.json();
-          if (Array.isArray(j?.items)) setRecent(j.items);
-        }
-      } catch {}
+    const onConvStarted = async (_evt: any) => {
+      await refreshInboxSnapshot();
+    };
+    const onConvHidden = async (_evt: any) => {
+      await refreshInboxSnapshot();
+    };
+    const onConvRestored = async (_evt: any) => {
+      await refreshInboxSnapshot();
+    };
+    const onConvRead = async (_evt: any) => {
+      await refreshInboxSnapshot();
     };
 
-    ch.bind("message:new", onNew);
-    ch.bind("message:updated", onUpdated);
+    ch.bind("chat:conversation:updated", onConvUpdated);
+    ch.bind("chat:conversation:started", onConvStarted);
+    ch.bind("chat:conversation:hidden", onConvHidden);
+    ch.bind("chat:conversation:restored", onConvRestored);
+    ch.bind("chat:conversation:read", onConvRead);
 
     return () => {
       try {
-        ch.unbind("message:new", onNew);
-        ch.unbind("message:updated", onUpdated);
+        ch.unbind("chat:conversation:updated", onConvUpdated);
+        ch.unbind("chat:conversation:started", onConvStarted);
+        ch.unbind("chat:conversation:hidden", onConvHidden);
+        ch.unbind("chat:conversation:restored", onConvRestored);
+        ch.unbind("chat:conversation:read", onConvRead);
         getPusherClient()?.unsubscribe(channelName);
       } catch {}
     };
-  }, [sellerId, pathname]);
+  }, [sellerId, refreshInboxSnapshot, setUnreadCount, setRecent]);
+
+  // Re-sincronizar cuando la pestaña vuelva a estar activa
+  useEffect(() => {
+    const onVis = () => {
+      try {
+        if (document.visibilityState === "visible") refreshInboxSnapshot();
+      } catch {}
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshInboxSnapshot]);
 
   return null;
 }
+

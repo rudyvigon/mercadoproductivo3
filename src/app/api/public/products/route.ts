@@ -28,7 +28,8 @@ export async function GET(req: NextRequest) {
     // a todo el conjunto y recién luego paginar.
     let query = supabase
       .from("products")
-      .select("*", { count: "exact" });
+      .select("*", { count: "exact" })
+      .eq("published", true);
 
     if (sellerId) {
       query = query.eq("user_id", sellerId);
@@ -96,7 +97,8 @@ export async function GET(req: NextRequest) {
     if (sortBy === "random") {
       let randomQuery = supabase
         .from("products")
-        .select("*", { count: "exact" });
+        .select("*", { count: "exact" })
+        .eq("published", true);
 
       if (sellerId) {
         randomQuery = randomQuery.eq("user_id", sellerId);

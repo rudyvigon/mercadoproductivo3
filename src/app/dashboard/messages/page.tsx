@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import MessagesInbox from "@/components/messages/messages-inbox";
+// Mensajería desactivada temporalmente para reconstrucción
+import MessagesInboxV2 from "@/components/messages/messages-inbox-v2";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,7 +33,7 @@ export default async function MessagesPage() {
 
   if (!allowed) {
     return (
-      <div className="mx-auto max-w-5xl p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl p-4 sm:p-6">
         <Card>
           <CardHeader>
             <CardTitle>Mensajes</CardTitle>
@@ -62,7 +63,9 @@ export default async function MessagesPage() {
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Mensajes</h1>
         <p className="text-sm text-muted-foreground sm:text-base">Bandeja de entrada</p>
       </div>
-      <MessagesInbox sellerId={user.id} />
+      <MessagesInboxV2 userId={user.id} />
     </div>
   );
 }
+
+

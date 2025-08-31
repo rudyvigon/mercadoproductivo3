@@ -1,4 +1,5 @@
 {
+  "$schema": "vscode://schemas/settings/default",
   "css.lint.unknownAtRules": "ignore",
   "scss.lint.unknownAtRules": "ignore",
   "less.lint.unknownAtRules": "ignore",
@@ -15,5 +16,11 @@
   "git.enableSmartCommit": false,
   "git.suggestSmartCommit": false,
   "git.postCommitCommand": "none",
-  "git.confirmSync": true
+  "git.confirmSync": true,
+
+  // Ocultar problemas reportados desde dependencias y artefactos de build
+  "problems.exclude": {
+    "**/node_modules/**": true,
+    "**/.next/**": true
+  }
 }

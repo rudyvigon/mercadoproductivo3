@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { Inter } from "next/font/google";
@@ -9,6 +9,12 @@ import GlobalMobileMenu from "@/components/layout/global-mobile-menu";
 export const metadata: Metadata = {
   title: "Mercado Productivo",
   description: "Plataforma que conecta vendedores con compradores",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 const inter = Inter({ subsets: ["latin"] });
@@ -24,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </AppShell>
           {/* Toaster mobile: arriba a la derecha, con offset para no tapar el header */}
           <div className="sm:hidden">
-            <Toaster richColors theme="light" position="top-right" offset={64} />
+            <Toaster richColors theme="light" position="top-right" offset={96} />
           </div>
           {/* Toaster desktop: abajo a la derecha */}
           <div className="hidden sm:block">

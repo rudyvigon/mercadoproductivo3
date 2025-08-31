@@ -3,27 +3,55 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { LogOut, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { normalizeRoleFromMetadata } from "@/lib/auth/role";
+import { MenuActionButton } from "@/components/ui/menu-buttons";
+import { useMessagesNotifications } from "@/store/messages-notifications";
 import MessagesPush from "@/components/notifications/messages-push";
-import MessagesBell from "@/components/notifications/messages-bell";
+
+// Hook de media query a nivel de módulo (desktop >= 1024px)
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+    const mql = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
+    setMatches(mql.matches);
+    try {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    } catch {
+      // compatibilidad antigua (Safari)
+      // @ts-ignore
+      mql.addListener(onChange);
+      return () => {
+        try {
+          // @ts-ignore
+          mql.removeListener(onChange);
+        } catch {}
+      };
+    }
+  }, [query]);
+  return matches;
+}
 
 export default function SiteHeader() {
+  const isLarge = useMediaQuery("(min-width: 1024px)");
   const [user, setUser] = useState<User | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
+  const [profileCompany, setProfileCompany] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(true);
+  const { unreadCount } = useMessagesNotifications();
+  const [accountOpen, setAccountOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
@@ -50,10 +78,11 @@ export default function SiteHeader() {
     };
   }, [supabase]);
 
-  // Cargar nombre desde perfil y suscribirse a cambios
+  // Cargar nombre y empresa desde perfil y suscribirse a cambios
   useEffect(() => {
     if (!user?.id) {
       setProfileName(null);
+      setProfileCompany(null);
       return;
     }
     let isActive = true;
@@ -61,7 +90,7 @@ export default function SiteHeader() {
     async function loadProfileName() {
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, first_name, last_name")
+        .select("company, full_name, first_name, last_name")
         .eq("id", user.id)
         .single();
       if (!isActive) return;
@@ -69,6 +98,8 @@ export default function SiteHeader() {
         .toString()
         .trim();
       setProfileName(name || null);
+      const company = String((data as any)?.company || "").trim();
+      setProfileCompany(company || null);
     }
 
     loadProfileName();
@@ -84,6 +115,8 @@ export default function SiteHeader() {
             .toString()
             .trim();
           setProfileName(name || null);
+          const company = String(row.company || "").trim();
+          setProfileCompany(company || null);
         }
       )
       .subscribe();
@@ -105,6 +138,10 @@ export default function SiteHeader() {
         .toString()
         .trim();
       if (name) setProfileName(name);
+      if (typeof detail.company === "string") {
+        const company = String(detail.company).trim();
+        setProfileCompany(company || null);
+      }
     };
     // @ts-ignore - CustomEvent typing
     window.addEventListener("profile:updated", handler as any);
@@ -125,6 +162,12 @@ export default function SiteHeader() {
     );
   }, [user, profileName]);
 
+  // Para la tarjeta del menú: primero empresa, luego nombre completo
+  const companyOrName = useMemo(() => {
+    const c = String(profileCompany || "").trim();
+    return c || displayName;
+  }, [profileCompany, displayName]);
+
   // Si cambia la metadata del usuario (updateUser), reflejarlo también
   useEffect(() => {
     const meta: any = user?.user_metadata || {};
@@ -142,7 +185,11 @@ export default function SiteHeader() {
   const accountLabel = isSeller ? "Dashboard" : "Perfil";
   const messagesHref = isSeller ? "/dashboard/messages" : "/mensajes";
 
+  // Badge rojo: mostrar si hay no leídos
+
   async function handleSignOut() {
+    // Cerrar menú antes de desloguear
+    try { setAccountOpen(false); } catch {}
     await supabase.auth.signOut();
     router.replace("/");
     router.refresh();
@@ -172,7 +219,7 @@ export default function SiteHeader() {
     ].join(" ");
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="fixed top-0 left-0 right-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 pt-safe pr-safe pl-safe">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6 lg:grid lg:grid-cols-3">
         <div className="flex items-center gap-3">
           <Link href="/" className="font-semibold text-foreground transition-colors hover:text-primary">
@@ -201,9 +248,22 @@ export default function SiteHeader() {
             </div>
           ) : user ? (
             <>
-              {/* Campana de notificaciones */}
-              <MessagesBell />
-              <DropdownMenu>
+              {/* Suscripciones de notificaciones en tiempo real: solo desktop */}
+              {isLarge && <MessagesPush sellerId={user?.id} messagesHref={messagesHref} />}
+
+              {/* Ícono de mensajes con badge rojo */}
+              <Link href={messagesHref} aria-label="Mensajes">
+                <button
+                  className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[#f06d04]/10"
+                >
+                  <MessageSquare className="h-5 w-5" />
+                  {unreadCount > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
+                  ) : null}
+                </button>
+              </Link>
+
+              <DropdownMenu open={accountOpen} onOpenChange={setAccountOpen}>
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-[#f06d04]/10 sm:gap-2">
                     <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
@@ -213,47 +273,80 @@ export default function SiteHeader() {
                     <span className="hidden text-xs font-medium sm:text-sm md:inline">{displayName}</span>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48 sm:w-56">
-                  <DropdownMenuLabel className="truncate">Bienvenido {displayName}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <Link href={messagesHref} className="focus:outline-none">
-                    <DropdownMenuItem className="cursor-pointer">
-                      {/* Usamos LayoutDashboard como ícono simple aquí; podría separarse si se requiere un ícono de mensajes */}
-                      <LayoutDashboard className="mr-2 h-4 w-4" /> Mensajes
-                    </DropdownMenuItem>
-                  </Link>
-                  <DropdownMenuSeparator />
-                  <Link href={accountHref} className="focus:outline-none">
-                    <DropdownMenuItem className="cursor-pointer">
-                      <LayoutDashboard className="mr-2 h-4 w-4" /> {accountLabel}
-                    </DropdownMenuItem>
-                  </Link>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600" onClick={handleSignOut}>
-                    <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
-                  </DropdownMenuItem>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-80 rounded-3xl p-0 sm:w-96"
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                >
+                  {/* Tarjeta personalizada */}
+                  <div className="rounded-3xl bg-muted/40 p-6 text-center">
+                    {/* Avatar/logo */}
+                    <div className="mx-auto mb-4 flex items-center justify-center">
+                      <Avatar className="h-16 w-16 ring-2 ring-white/40">
+                        <AvatarImage src={(user.user_metadata as any)?.avatar_url || (user.user_metadata as any)?.picture} alt={displayName} />
+                        <AvatarFallback className="text-lg">{displayName?.[0]?.toUpperCase() || "U"}</AvatarFallback>
+                      </Avatar>
+                    </div>
+
+                    {/* Bienvenida y nombre empresa o usuario */}
+                    <div className="space-y-1">
+                      <p className="text-xs tracking-[0.35em] text-foreground/70">BIENVENIDO</p>
+                      <p className="truncate text-base font-semibold tracking-widest text-foreground">{companyOrName}</p>
+                    </div>
+
+                    {/* Acciones */}
+                    <div className="mt-5 flex items-center justify-center gap-4">
+                      {/* Botón MENSAJES (estilo ancla de referencia) */}
+                      <Link
+                        href={messagesHref}
+                        className="focus:outline-none"
+                        onClick={() => setAccountOpen(false)}
+                      >
+                        <MenuActionButton>
+                          Mensajes
+                        </MenuActionButton>
+                      </Link>
+
+                      {/* Botón DASHBOARD/PERFIL (mismo estilo referencia) */}
+                      <Link
+                        href={accountHref}
+                        className="focus:outline-none"
+                        onClick={() => setAccountOpen(false)}
+                      >
+                        <MenuActionButton aria-label={accountLabel}>
+                          {accountLabel}
+                        </MenuActionButton>
+                      </Link>
+                    </div>
+
+                    {/* Cerrar sesión */}
+                    <button
+                      onClick={handleSignOut}
+                      className="mx-auto mt-6 inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium tracking-[0.2em] text-foreground/80 transition-colors hover:text-foreground"
+                    >
+                      <LogOut className="h-4 w-4" /> CERRAR SESIÓN
+                    </button>
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </>
-          ) : (
-            <>
-              <Link href="/auth/login" className="text-xs text-foreground/80 hover:text-foreground sm:text-sm">Iniciar sesión</Link>
-              <Link
-                href="/auth/register"
-                className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:opacity-95"
-              >
-                Crear cuenta
-              </Link>
-            </>
-          )}
+          </>
+        ) : (
+          <>
+            <Link href="/auth/login" className="text-xs text-foreground/80 hover:text-foreground sm:text-sm">Iniciar sesión</Link>
+            <Link
+              href="/auth/register"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:opacity-95"
+            >
+              Crear cuenta
+            </Link>
+          </>
+        )}
         </div>
 
         {/* Botón de menú móvil eliminado - reemplazado por menú hamburguesa global */}
       </div>
 
       {/* Menú móvil expandido eliminado - reemplazado por menú hamburguesa global */}
-      {/* Listener de notificaciones push para mensajes (solo cuando hay usuario) */}
-      {user?.id ? <MessagesPush sellerId={user.id} /> : null}
     </header>
   );
 }

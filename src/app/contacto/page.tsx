@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Mail, Phone, MapPin, Clock, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import ContactForm from "@/components/contact/contact-form";
 
 export const metadata: Metadata = {
@@ -12,17 +11,15 @@ export const metadata: Metadata = {
 export default function ContactoPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
-      {/* Hero */}
-      <section>
-        <h1 className="text-3xl font-bold tracking-tight">Contactanos</h1>
-        <p className="mt-3 max-w-3xl text-muted-foreground">
-          ¿Tienes preguntas, sugerencias o necesitas ayuda? Estamos aquí para ayudarte. Nuestro equipo está disponible
-          para brindarte el mejor soporte.
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Contacto</h1>
+        <p className="mt-2 max-w-prose text-sm text-muted-foreground sm:text-base">
+          ¿Tienes consultas o necesitas ayuda? Escríbenos y te responderemos a la brevedad.
         </p>
-      </section>
+      </div>
 
       {/* Info + Formulario */}
-      <div className="mt-10 grid gap-8 md:grid-cols-2">
+      <div className="grid gap-8 md:grid-cols-2">
         {/* Información de contacto */}
         <div className="space-y-6">
           <Card>
@@ -103,38 +100,6 @@ export default function ContactoPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Preguntas Frecuentes */}
-      <section className="mt-12">
-        <h2 className="text-2xl font-semibold tracking-tight">Preguntas Frecuentes</h2>
-        <p className="mt-2 text-muted-foreground">Encuentra respuestas rápidas a las consultas más comunes.</p>
-        <Accordion type="single" collapsible className="mt-6 divide-y rounded-lg border">
-          <AccordionItem value="q1" className="px-4">
-            <AccordionTrigger className="text-left">¿Cómo puedo crear una cuenta?</AccordionTrigger>
-            <AccordionContent>
-              Haz clic en &quot;Registrarse&quot; en la parte superior de la página y completa el formulario con tus datos.
-            </AccordionContent>
-          </AccordionItem>
-          <AccordionItem value="q2" className="px-4">
-            <AccordionTrigger className="text-left">¿Es seguro comprar en la plataforma?</AccordionTrigger>
-            <AccordionContent>
-              Sí, utilizamos tecnología de encriptación y sistemas de verificación para garantizar transacciones seguras.
-            </AccordionContent>
-          </AccordionItem>
-          <AccordionItem value="q3" className="px-4">
-            <AccordionTrigger className="text-left">¿Qué comisiones cobran?</AccordionTrigger>
-            <AccordionContent>
-              Las comisiones varían según el plan elegido. Consulta nuestra página de planes para más detalles.
-            </AccordionContent>
-          </AccordionItem>
-          <AccordionItem value="q4" className="px-4">
-            <AccordionTrigger className="text-left">¿Cómo contacto al soporte técnico?</AccordionTrigger>
-            <AccordionContent>
-              Puedes contactarnos por email, teléfono o a través del formulario de contacto en esta página.
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </section>
     </main>
   );
 }

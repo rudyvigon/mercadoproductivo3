@@ -7,7 +7,7 @@ export type NameLike = {
 
 /**
  * Obtiene un nombre de visualización preferido para remitentes.
- * Prioriza: company -> full_name -> (first_name + last_name) -> fallback -> "Contacto".
+ * Prioriza: company -> full_name -> (first_name + last_name) -> fallback -> "" (vacío).
  */
 export function getSenderDisplayName(src?: NameLike | null, fallback?: string) {
   const company = String(src?.company ?? "").trim();
@@ -24,5 +24,5 @@ export function getSenderDisplayName(src?: NameLike | null, fallback?: string) {
   const fb = String(fallback ?? "").trim();
   if (fb) return fb;
 
-  return "Contacto";
+  return "";
 }

@@ -34,30 +34,40 @@ export default function BuyerChatInput({
     setLoading(true);
     try {
       if (!threadId) {
-        // Enviar nuevo mensaje (crea hilo)
-        const res = await fetch("/api/messages/send", {
+        // Chat v2: iniciar (o recuperar) conversación y enviar primer mensaje
+        const startRes = await fetch("/api/chat/conversations/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sellerId, body }),
+          body: JSON.stringify({ participantId: sellerId }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.message || data?.error || "No se pudo enviar");
-        const id = String(data?.id);
-        const created_at = String(data?.created_at || new Date().toISOString());
-        onSent({ kind: "message", id, message_id: id, body, created_at });
-        setValue("");
-      } else {
-        // Responder en hilo existente
-        const res = await fetch(`/api/messages/${threadId}/reply/buyer`, {
+        const startData = await startRes.json();
+        if (!startRes.ok) throw new Error(startData?.message || startData?.error || "No se pudo iniciar la conversación");
+        const conversationId = String(startData?.conversation_id || "");
+        if (!conversationId) throw new Error("No se pudo obtener la conversación");
+
+        const msgRes = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ body }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.message || data?.error || "No se pudo enviar");
-        const id = String(data?.reply_id);
-        const created_at = String(data?.created_at || new Date().toISOString());
-        onSent({ kind: "reply", id, message_id: threadId, body, created_at });
+        const msgData = await msgRes.json();
+        if (!msgRes.ok) throw new Error(msgData?.message || msgData?.error || "No se pudo enviar");
+        const id = String(msgData?.message?.id || msgData?.id);
+        const created_at = String(msgData?.message?.created_at || msgData?.created_at || new Date().toISOString());
+        onSent({ kind: "message", id, message_id: conversationId, body, created_at });
+        setValue("");
+      } else {
+        // Chat v2: enviar mensaje en conversación existente (threadId es conversationId)
+        const msgRes = await fetch(`/api/chat/conversations/${threadId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        });
+        const msgData = await msgRes.json();
+        if (!msgRes.ok) throw new Error(msgData?.message || msgData?.error || "No se pudo enviar");
+        const id = String(msgData?.message?.id || msgData?.id);
+        const created_at = String(msgData?.message?.created_at || msgData?.created_at || new Date().toISOString());
+        onSent({ kind: "message", id, message_id: threadId, body, created_at });
         setValue("");
       }
     } catch (e: any) {
@@ -90,3 +100,4 @@ export default function BuyerChatInput({
     </div>
   );
 }
+

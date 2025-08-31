@@ -97,7 +97,12 @@ export default function SellerInfoCard({ seller, productTitle }: { seller: Publi
             size="sm"
             className="w-full sm:w-auto"
           />
-          <Button asChild variant="secondary" size="sm" className="w-full sm:w-auto">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto border-amber-500 text-amber-600 hover:bg-amber-50"
+          >
             <Link href={`/vendedores/${seller.id}`}>Ver perfil</Link>
           </Button>
         </div>

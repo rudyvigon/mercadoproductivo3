@@ -34,6 +34,12 @@
   --ring: 24 95% 53%;
 
   --radius: 0.75rem; /* 12px */
+
+  /* Safe area (iOS notch) */
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
 }
 
 .dark {
@@ -72,6 +78,11 @@ body,
   height: 100%;
 }
 
+html {
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -98,4 +109,25 @@ body,
     background-size: 200% 200%;
     animation: gradient-x 7s ease-in-out infinite;
   }
+
+  /* Safe area paddings */
+  .pt-safe { padding-top: var(--sat); }
+  .pr-safe { padding-right: var(--sar); }
+  .pb-safe { padding-bottom: var(--sab); }
+  .pl-safe { padding-left: var(--sal); }
+
+  /* Contenido principal: compensa header fijo + safe area */
+  .pt-header-safe { padding-top: calc(3.5rem + var(--sat)); }
+}
+
+/* sm: pt-16 (4rem) + safe-top */
+@media (min-width: 640px) {
+  .pt-header-safe { padding-top: calc(4rem + var(--sat)); }
+}
+
+/* Utilidad para fixed bottom-right respetando safe areas (equivale a bottom-4 right-4) */
+.fixed-safe-br {
+  position: fixed;
+  bottom: calc(1rem + var(--sab));
+  right: calc(1rem + var(--sar));
 }

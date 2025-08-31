@@ -24,8 +24,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="flex min-h-screen bg-background">
       <DashboardSidebar />
       <main className="flex-1 lg:ml-0">
-        {/* Espaciado superior para el botón hamburguesa en móvil */}
-        <div className="pt-16 lg:pt-0">
+        {/* Espaciado superior suave en móvil (AppShell ya compensa el header) */}
+        <div className="pt-2 lg:pt-0">
           {children}
         </div>
       </main>

@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
-import AuthGateModal from "@/components/auth/auth-gate-modal";
 import BuyerConversationWindow from "@/components/chat/buyer-conversation-window";
 import { createClient } from "@/lib/supabase/client";
-import { toast } from "sonner";
 
 function planTier(plan?: string | null): "basic" | "plus" | "premium" | "deluxe" {
   const c = String(plan || "").toLowerCase();
@@ -41,32 +39,21 @@ export default function BuyerChatButton({
 }) {
   const allowed = isAllowedPlan(sellerPlanCode);
   const [open, setOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [authedEmail, setAuthedEmail] = useState<string | null>(null);
-  const [authedId, setAuthedId] = useState<string | null>(null);
-  const [loadingUser, setLoadingUser] = useState(false);
+  const supabase = useMemo(() => createClient(), []);
+  const [selfId, setSelfId] = useState<string | null>(null);
 
   useEffect(() => {
-    let mounted = true;
-    async function load() {
+    (async () => {
       try {
-        setLoadingUser(true);
-        const supabase = createClient();
         const { data } = await supabase.auth.getUser();
-        if (!mounted) return;
-        setAuthedEmail(data.user?.email ?? null);
-        setAuthedId(data.user?.id ?? null);
+        setSelfId(data?.user?.id || null);
       } catch {
-        // noop
-      } finally {
-        if (mounted) setLoadingUser(false);
+        setSelfId(null);
       }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    })();
+  }, [supabase]);
+
+  const isSelf = selfId && String(selfId) === String(sellerId);
 
   if (!allowed) return null;
 
@@ -76,39 +63,22 @@ export default function BuyerChatButton({
     <>
       <Button
         className={cn("inline-flex items-center gap-2", triggerSize, className)}
-        onClick={() => {
-          if (loadingUser) return;
-          if (!authedEmail) {
-            setAuthOpen(true);
-            return;
-          }
-          if (authedId && authedId === sellerId) {
-            toast.error("No puedes enviarte mensajes a ti mismo.");
-            return;
-          }
-          setOpen(true);
-        }}
+        onClick={() => !isSelf && setOpen(true)}
+        disabled={!!isSelf}
+        title={isSelf ? "No puedes enviarte mensajes a ti mismo" : undefined}
       >
         <Mail className={size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"} />
         <span>{buttonLabel}</span>
       </Button>
-      <AuthGateModal
-        open={authOpen}
-        onOpenChange={setAuthOpen}
-        title="Crear una cuenta"
-        description="Necesitas una cuenta para chatear con el vendedor."
-        registerHref="/auth/register"
+      <BuyerConversationWindow
+        open={open}
+        onOpenChange={setOpen}
+        sellerId={sellerId}
+        sellerName={sellerName || undefined}
+        sellerAvatarUrl={sellerAvatarUrl || undefined}
+        currentUserEmail={""}
       />
-      {authedEmail && (
-        <BuyerConversationWindow
-          open={open}
-          onOpenChange={setOpen}
-          sellerId={sellerId}
-          sellerName={sellerName}
-          sellerAvatarUrl={sellerAvatarUrl || undefined}
-          currentUserEmail={authedEmail}
-        />
-      )}
     </>
   );
 }
+

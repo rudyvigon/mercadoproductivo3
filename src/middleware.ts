@@ -11,6 +11,35 @@ export async function middleware(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
+  // Bloquear APIs legacy del chat v1
+  if (
+    req.nextUrl.pathname.startsWith("/api/messages") ||
+    req.nextUrl.pathname.startsWith("/api/replies")
+  ) {
+    return NextResponse.json(
+      {
+        error: "CHAT_DESHABILITADO",
+        message:
+          "El sistema de chat legacy está en reconstrucción. Todas las rutas /api/messages y /api/replies están temporalmente deshabilitadas.",
+      },
+      { status: 410 }
+    );
+  }
+
+  // Chat V2: permitir solo si la feature está activada
+  if (req.nextUrl.pathname.startsWith("/api/chat")) {
+    const chatEnabled = process.env.FEATURE_CHAT_V2_ENABLED === "true";
+    if (!chatEnabled) {
+      return NextResponse.json(
+        {
+          error: "CHAT_DESHABILITADO",
+          message: "El sistema de chat v2 está temporalmente deshabilitado.",
+        },
+        { status: 410 }
+      );
+    }
+  }
+
   // Proteger rutas del dashboard y perfil
   if (
     !session &&
@@ -58,5 +87,9 @@ export const config = {
     "/auth/callback",
     "/auth/login",
     "/auth/register",
+    // Bloqueo de APIs legacy
+    "/api/messages/:path*",
+    "/api/replies/:path*",
+    "/api/chat/:path*",
   ],
 };

@@ -68,7 +68,6 @@ export default function BannerSlider() {
         const json = await res.json();
         const images: string[] = Array.isArray(json?.images) ? json.images : [];
         const normalized = Array.from({ length: bannerSlides.length }, (_, i) => images[i] ?? null);
-        console.log("[BannerSlider] Imágenes del endpoint:", normalized);
         setSlideImages(normalized);
       } catch (e) {
         console.error("[BannerSlider] Error inesperado al cargar banners:", e);

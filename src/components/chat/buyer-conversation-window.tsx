@@ -7,8 +7,9 @@ import BuyerChatInput, { BuyerInputSent } from "./buyer-chat-input";
 import { subscribePrivate, getPusherClient } from "@/lib/pusher/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { emailSlug } from "@/lib/email";
-import { markDeliveredAndRead } from "@/lib/chat/delivery";
+import { markConversationRead } from "@/lib/chat/delivery";
+import { createClient } from "@/lib/supabase/client";
+import { displayNameFromTimeline, headerAvatarFromTimeline, avatarAltHeader } from "@/lib/user-display";
 
 export default function BuyerConversationWindow({
   open,
@@ -28,47 +29,96 @@ export default function BuyerConversationWindow({
   const [loading, setLoading] = useState(false);
   const [timeline, setTimeline] = useState<ChatItem[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [selfName, setSelfName] = useState<string | null>(null);
+  const [selfEmail, setSelfEmail] = useState<string | null>(null);
+  const [selfAvatarUrl, setSelfAvatarUrl] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Dedupe de eventos (msg/rep) para evitar duplicados entre onSent y realtime
   const seenRef = useRef<Set<string>>(new Set());
-  // Dedupe de marcado delivered/read
-  const markedRef = useRef<Set<string>>(new Set());
+  // Marcado de leído por conversación
+  const readMarkedRef = useRef<boolean>(false);
 
   // Último message_id de mensajes OUTGOING (comprador) para enganchar replies
-  const lastBuyerMessageId = useMemo(() => {
-    const outs = [...timeline].filter((t) => t.type === "outgoing");
-    return outs.length ? outs[outs.length - 1].message_id || null : null;
-  }, [timeline]);
-  // En caso de que el vendedor haya iniciado la conversación, podemos tener solo INCOMING
-  const lastIncomingId = useMemo(() => {
-    const ins = [...timeline].filter((t) => t.type === "incoming");
-    return ins.length ? ins[ins.length - 1].message_id || null : null;
-  }, [timeline]);
-  const effectiveThreadId = threadId ?? lastBuyerMessageId ?? lastIncomingId ?? null;
+  // En Chat v2, threadId representa conversationId directamente
+  const effectiveThreadId = threadId;
+  const supabase = useMemo(() => createClient(), []);
+
+  // Nombre efectivo mostrado en el header: prioriza el nombre del último mensaje entrante
+  const headerName = useMemo(() => displayNameFromTimeline(timeline, sellerName), [timeline, sellerName]);
+  const headerAvatar = useMemo(() => headerAvatarFromTimeline(timeline, sellerAvatarUrl), [timeline, sellerAvatarUrl]);
+
+  // Cargar perfil propio para mostrar avatar/nombre en mensajes salientes inmediatos
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (!uid) return;
+        const { data } = await supabase
+          .from("profiles")
+          .select("full_name,avatar_url")
+          .eq("id", uid)
+          .single();
+        setSelfName((data?.full_name || "").toString().trim() || null);
+        // El email proviene de auth.users, no de profiles
+        setSelfEmail((auth?.user?.email || "").toString().trim() || null);
+        setSelfAvatarUrl((data?.avatar_url || "").toString().trim() || null);
+      } catch {}
+    })();
+  }, [supabase]);
 
   useEffect(() => {
     if (!open) return;
     async function load() {
       setLoading(true);
       try {
-        const params = new URLSearchParams({ sellerId });
-        const res = await fetch(`/api/messages/history/buyer?${params.toString()}`, { cache: "no-store" });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.message || data?.error || "Error al cargar historial");
-        const tl: ChatItem[] = (data?.timeline || []) as ChatItem[];
+        // Asegurar/obtener conversación (DM) con el vendedor
+        const startRes = await fetch("/api/chat/conversations/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ participantId: sellerId }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok) throw new Error(startData?.message || startData?.error || "No se pudo iniciar la conversación");
+        const conversationId = String(startData?.conversation_id || "");
+        if (!conversationId) throw new Error("No se pudo obtener la conversación");
+        setThreadId(conversationId);
+
+        // Cargar mensajes de Chat v2
+        const url = new URL(`/api/chat/conversations/${conversationId}/messages`, window.location.origin);
+        url.searchParams.set("limit", "50");
+        const msgRes = await fetch(url.toString(), { cache: "no-store" });
+        const msgData = await msgRes.json();
+        if (!msgRes.ok) throw new Error(msgData?.message || msgData?.error || "Error al cargar historial");
+        const rows = Array.isArray(msgData?.messages) ? msgData.messages : [];
+        const tl: ChatItem[] = rows
+          .slice()
+          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .map((m: any) => ({
+            id: `msg-${m.id}`,
+            type: String(m.sender_id) === String(sellerId) ? "incoming" : "outgoing",
+            message_id: conversationId,
+            body: m.body,
+            created_at: m.created_at,
+            sender_name: m.sender_name,
+            sender_email: m.sender_email,
+            avatar_url: m.avatar_url,
+          }));
         setTimeline(tl);
-        // Sembrar dedupe con los elementos iniciales
-        try {
-          tl.forEach((it) => seenRef.current.add(it.id));
-        } catch {}
-        // Preferir último OUTGOING; si no hay, tomar último INCOMING
-        const lastOut = tl.filter((t) => t.type === "outgoing").slice(-1)[0]?.message_id || null;
-        const lastIn = tl.filter((t) => t.type === "incoming").slice(-1)[0]?.message_id || null;
-        setThreadId(lastOut || lastIn || null);
+        // Sembrar dedupe
+        try { tl.forEach((it) => seenRef.current.add(it.id)); } catch {}
+
+        // Scroll al final y marcar leído
         setTimeout(() => {
           if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }, 0);
+        try {
+          if (!readMarkedRef.current) {
+            await markConversationRead(conversationId);
+            readMarkedRef.current = true;
+          }
+        } catch {}
       } catch (e: any) {
         toast.error(e?.message || "No se pudo cargar el historial");
       } finally {
@@ -90,153 +140,62 @@ export default function BuyerConversationWindow({
   }, [timeline]);
 
   useEffect(() => {
-    if (!open || !sellerId || !currentUserEmail) return;
+    if (!open || !sellerId || !effectiveThreadId) return;
     const client = getPusherClient();
     if (!client) return;
-    const channel = `private-thread-${sellerId}-${emailSlug(currentUserEmail)}`;
+    const channel = `private-conversation-${effectiveThreadId}`;
     const ch = subscribePrivate(channel);
     if (!ch) return;
 
-    const onMessageNew = (msg: any) => {
-      // event del propio comprador: agregar outgoing
-      if (msg?.sender_email && String(msg.sender_email).toLowerCase() !== String(currentUserEmail).toLowerCase()) {
-        // En teoría no debería ocurrir en este canal, pero por seguridad lo ignoramos
-        return;
-      }
-      const key = `msg-${msg.id}`;
+    const onChatMessageNew = async (msg: any) => {
+      const key = `msg-${msg?.id}`;
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
-      setTimeline((prev) => {
-        const next = prev.concat({
-          id: key,
-          type: "outgoing",
-          message_id: msg.id,
-          body: msg.body,
-          created_at: msg.created_at,
-          sender_name: msg.sender_name,
-          sender_email: msg.sender_email,
-        });
-        return next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      });
-      setThreadId(msg.id);
-    };
-
-    const onReplyNew = (rep: any) => {
-      if (!rep?.message_id) return;
-      const key = `rep-${rep.id}`;
-      if (seenRef.current.has(key)) return;
-      seenRef.current.add(key);
-      // Orientación: si lo envió el vendedor (sender_id === sellerId) es incoming; si lo envió el comprador, outgoing
-      const isIncoming = String(rep.sender_id || "") === String(sellerId);
-      // Si es incoming para el comprador, marcar delivered+read
-      if (isIncoming && !markedRef.current.has(key)) {
-        markedRef.current.add(key);
-        try {
-          markDeliveredAndRead("rep", String(rep.id));
-        } catch {}
-      }
+      const isIncoming = String(msg?.sender_id || "") === String(sellerId);
       setTimeline((prev) => {
         const next = prev.concat({
           id: key,
           type: isIncoming ? "incoming" : "outgoing",
-          message_id: rep.message_id,
-          body: rep.body,
-          created_at: rep.created_at,
+          message_id: effectiveThreadId,
+          body: msg?.body,
+          created_at: msg?.created_at || new Date().toISOString(),
+          sender_name: msg?.sender_name ?? (isIncoming ? sellerName : selfName) ?? undefined,
+          sender_email: msg?.sender_email ?? (isIncoming ? undefined : selfEmail) ?? undefined,
+          avatar_url: msg?.avatar_url ?? (isIncoming ? sellerAvatarUrl : selfAvatarUrl) ?? undefined,
         });
         return next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       });
-      setThreadId((prev) => prev ?? rep.message_id);
-    };
-
-    // Helpers de actualización de estado
-    const upgrade = (curr: "sent" | "delivered" | "read" | undefined, next: "delivered" | "read") => {
-      if (next === "delivered") return curr === "read" ? "read" : "delivered";
-      return "read";
-    };
-
-    const onMessageDelivered = (evt: any) => {
-      const id = `msg-${evt?.id}`;
-      setTimeline((prev) =>
-        prev.map((it) =>
-          it.id === id && it.type === "outgoing"
-            ? { ...it, delivery_status: upgrade(it.delivery_status, "delivered") }
-            : it
-        )
-      );
-    };
-
-    const onMessageRead = (evt: any) => {
-      const id = `msg-${evt?.id}`;
-      setTimeline((prev) => prev.map((it) => (it.id === id && it.type === "outgoing" ? { ...it, delivery_status: "read" } : it)));
-    };
-
-    const onReplyDelivered = (evt: any) => {
-      const id = `rep-${evt?.id}`;
-      setTimeline((prev) =>
-        prev.map((it) =>
-          it.id === id && it.type === "outgoing"
-            ? { ...it, delivery_status: upgrade(it.delivery_status, "delivered") }
-            : it
-        )
-      );
-    };
-
-    const onReplyRead = (evt: any) => {
-      const id = `rep-${evt?.id}`;
-      setTimeline((prev) => prev.map((it) => (it.id === id && it.type === "outgoing" ? { ...it, delivery_status: "read" } : it)));
-    };
-
-    ch.bind("message:new", onMessageNew);
-    ch.bind("reply:new", onReplyNew);
-    ch.bind("message:delivered", onMessageDelivered);
-    ch.bind("message:read", onMessageRead);
-    ch.bind("reply:delivered", onReplyDelivered);
-    ch.bind("reply:read", onReplyRead);
-    const onMessageDeleted = (evt: any) => {
-      const id = `msg-${evt?.id}`;
-      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
-    };
-    const onReplyDeleted = (evt: any) => {
-      const id = `rep-${evt?.id}`;
-      setTimeline((prev) => prev.map((it) => (it.id === id ? { ...it, deleted: true } : it)));
-    };
-    ch.bind("message:deleted", onMessageDeleted);
-    ch.bind("reply:deleted", onReplyDeleted);
-    return () => {
-      ch.unbind("message:new", onMessageNew);
-      ch.unbind("reply:new", onReplyNew);
-      ch.unbind("message:delivered", onMessageDelivered);
-      ch.unbind("message:read", onMessageRead);
-      ch.unbind("reply:delivered", onReplyDelivered);
-      ch.unbind("reply:read", onReplyRead);
-      ch.unbind("message:deleted", onMessageDeleted);
-      ch.unbind("reply:deleted", onReplyDeleted);
-      getPusherClient()?.unsubscribe(channel);
-    };
-  }, [open, sellerId, currentUserEmail]);
-
-  // Al cargar/actualizar timeline, marcar delivered+read de items entrantes para el comprador
-  useEffect(() => {
-    if (!open) return;
-    for (const it of timeline) {
-      if (it.type !== "incoming") continue;
-      const key = it.id;
-      if (markedRef.current.has(key)) continue;
-      markedRef.current.add(key);
+      // Marcar leído si es entrante
       try {
-        if (key.startsWith("rep-")) {
-          const repId = key.slice(4);
-          if (repId) markDeliveredAndRead("rep", repId);
-        } else if (key.startsWith("msg-") && it.message_id) {
-          // Caso poco frecuente: si hubiera un mensaje entrante (no placeholder)
-          markDeliveredAndRead("msg", String(it.message_id));
+        if (isIncoming && !readMarkedRef.current) {
+          await markConversationRead(effectiveThreadId);
+          readMarkedRef.current = true;
         }
       } catch {}
+    };
+
+    ch.bind("chat:message:new", onChatMessageNew);
+    return () => {
+      ch.unbind("chat:message:new", onChatMessageNew);
+      getPusherClient()?.unsubscribe(channel);
+    };
+  }, [open, sellerId, effectiveThreadId]);
+
+  // Marcar leído al abrir si hay conversación y mensajes cargados
+  useEffect(() => {
+    if (!open || !effectiveThreadId || readMarkedRef.current === true) return;
+    if (timeline.some((t) => t.type === "incoming")) {
+      (async () => {
+        try {
+          await markConversationRead(effectiveThreadId);
+          readMarkedRef.current = true;
+        } catch {}
+      })();
     }
-  }, [open, timeline]);
+  }, [open, effectiveThreadId, timeline]);
 
   function handleSent(evt: BuyerInputSent) {
-    const key = `${evt.kind === "message" ? "msg" : "rep"}-${evt.id}`;
+    const key = `msg-${evt.id}`;
     if (seenRef.current.has(key)) return;
     seenRef.current.add(key);
     setTimeline((prev) => {
@@ -246,15 +205,13 @@ export default function BuyerConversationWindow({
         message_id: evt.message_id,
         body: evt.body,
         created_at: evt.created_at,
+        sender_name: selfName || undefined,
+        sender_email: selfEmail || undefined,
+        avatar_url: selfAvatarUrl || undefined,
       });
       return next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     });
-    if (evt.kind === "message") setThreadId(evt.message_id);
-  }
-
-  function handleDeletedLocal(id: string, kind: "msg" | "rep") {
-    const fullId = `${kind}-${id}`;
-    setTimeline((prev) => prev.map((it) => (it.id === fullId ? { ...it, deleted: true } : it)));
+    setThreadId(evt.message_id);
   }
 
   return (
@@ -263,11 +220,11 @@ export default function BuyerConversationWindow({
         <DialogHeader className="border-b p-4">
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={sellerAvatarUrl} alt={sellerName || "Vendedor"} />
-              <AvatarFallback>{(sellerName?.[0] || "V").toUpperCase()}</AvatarFallback>
+              <AvatarImage src={headerAvatar} alt={avatarAltHeader(headerName)} />
+              <AvatarFallback>{(((headerName || "U")[0]) || "U").toUpperCase()}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <DialogTitle className="truncate">{sellerName || "Vendedor"}</DialogTitle>
+              <DialogTitle className="truncate">{headerName || ""}</DialogTitle>
               <DialogDescription className="truncate">Conversación con el vendedor</DialogDescription>
             </div>
           </div>
@@ -279,7 +236,7 @@ export default function BuyerConversationWindow({
             ) : timeline.length === 0 ? (
               <div className="p-3 text-sm text-muted-foreground">Inicia la conversación</div>
             ) : (
-              <ChatMessages items={timeline} onDeleted={handleDeletedLocal} />
+              <ChatMessages items={timeline} />
             )}
           </div>
           <div className="border-t p-3">
