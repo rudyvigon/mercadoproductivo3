@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContentNoClose, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import ChatMessages, { ChatItem } from "./chat-messages";
 import ConversationChatInput, { ChatV2Sent } from "./conversation-chat-input";
@@ -195,8 +195,31 @@ export default function SellerConversationWindow({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] w-[96vw] max-w-2xl flex-col p-0">
+      <DialogContentNoClose className="flex h-[85vh] w-[96vw] max-w-2xl flex-col p-0">
         <DialogHeader className="border-b p-4">
+          {/* Solapa superior para gesto de cerrar en mobile */}
+          <div
+            className="sm:hidden mx-auto mb-2 mt-1 h-1.5 w-12 rounded-full bg-muted"
+            onTouchStart={(e) => {
+              try { (e.currentTarget as any)._startY = e.touches?.[0]?.clientY ?? 0; (e.currentTarget as any)._deltaY = 0; } catch {}
+            }}
+            onTouchMove={(e) => {
+              try {
+                const startY = (e.currentTarget as any)._startY ?? null;
+                if (startY == null) return;
+                const y = e.touches?.[0]?.clientY ?? startY;
+                (e.currentTarget as any)._deltaY = y - startY;
+              } catch {}
+            }}
+            onTouchEnd={(e) => {
+              try {
+                const dy = (e.currentTarget as any)._deltaY ?? 0;
+                if (dy > 60) onOpenChange(false);
+                (e.currentTarget as any)._startY = null;
+                (e.currentTarget as any)._deltaY = 0;
+              } catch {}
+            }}
+          />
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
               <AvatarImage src={headerAvatar} alt={avatarAltHeader(headerName)} />
@@ -208,7 +231,7 @@ export default function SellerConversationWindow({
             </div>
           </div>
         </DialogHeader>
-        <div className={cn("flex min-h-0 flex-1 flex-col")}>
+        <div className={cn("flex min-h-0 flex-1 flex-col")}> 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-3">
             {loading ? (
               <div className="p-3 text-sm text-muted-foreground">Cargando...</div>
@@ -222,7 +245,7 @@ export default function SellerConversationWindow({
             <ConversationChatInput conversationId={effectiveConversationId} onSent={handleSent} />
           </div>
         </div>
-      </DialogContent>
+      </DialogContentNoClose>
     </Dialog>
   );
 }

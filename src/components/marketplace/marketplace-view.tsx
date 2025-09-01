@@ -101,6 +101,7 @@ export default function MarketplaceView() {
           const { data: categoryData } = await supabase
             .from("products")
             .select("category")
+            .eq("published", true)
             .not("category", "is", null);
           resolvedCategories = Array.from(
             new Set((categoryData?.map((item) => (item as any)?.category?.toString().trim()) || []).filter(Boolean))
@@ -112,6 +113,7 @@ export default function MarketplaceView() {
         const { data: locationData } = await supabase
           .from("products")
           .select("location")
+          .eq("published", true)
           .not("location", "is", null);
 
         const uniqueLocations = Array.from(
@@ -126,6 +128,7 @@ export default function MarketplaceView() {
         const { data: priceData } = await supabase
           .from("products")
           .select("price")
+          .eq("published", true)
           .order("price", { ascending: true });
 
         if (priceData && priceData.length > 0) {

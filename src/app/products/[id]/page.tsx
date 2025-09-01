@@ -38,6 +38,7 @@ export default async function PublicProductPage({ params }: { params: { id: stri
       "id,title,description,price,category,location,quantity_value,quantity_unit,featured_until,created_at,user_id"
     )
     .eq("id", params.id)
+    .eq("published", true)
     .single();
 
   if (error || !product) {
@@ -177,3 +178,4 @@ export default async function PublicProductPage({ params }: { params: { id: stri
     </div>
   );
 }
+

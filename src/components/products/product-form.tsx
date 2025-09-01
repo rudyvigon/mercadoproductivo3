@@ -219,7 +219,8 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         const { count } = await supabase
           .from('products')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .eq('published', true);
         setProductsCount(count ?? 0);
 
         // Plan y máximo de productos
@@ -454,7 +455,8 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         const { count: countNow } = await supabase
           .from('products')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .eq('published', true);
         if (typeof maxProducts === 'number' && (countNow ?? 0) >= maxProducts) {
           throw new Error(`Límite alcanzado: tu plan permite hasta ${maxProducts} productos.`);
         }
@@ -462,8 +464,6 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         toast.error(err?.message || 'No puedes publicar más productos con tu plan actual.');
         return;
       }
-
-      const imageUrls = await uploadImages(user.id);
 
       const payload = {
         user_id: user.id,
@@ -474,6 +474,7 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         quantity_value: values.quantity_value,
         quantity_unit: values.quantity_unit,
         location: `${values.city}, ${values.province}`,
+        published: true,
         created_at: new Date().toISOString(),
       } as const;
 
@@ -485,6 +486,9 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         .select("id")
         .single();
       if (insertError) throw insertError;
+
+      // Subir imágenes después de crear el producto para evitar huérfanas si falla el insert
+      const imageUrls = await uploadImages(user.id);
 
       // Registrar imágenes en tabla product_images para enforcement en BD
       if (createdProduct?.id && imageUrls.length) {
@@ -513,6 +517,9 @@ export default function ProductForm({ missingLabels = [] }: ProductFormProps) {
         toast.error("Falta el bucket 'product-images' en Supabase Storage. Crea el bucket o ajusta la config.");
       } else if (/row-level security|RLS|permission denied|not authorized/i.test(msg)) {
         toast.error("Permisos insuficientes para crear producto (RLS). Revisa políticas en Supabase.");
+      } else if (/PUBLISHED_PRODUCT_LIMIT_REACHED/i.test(msg)) {
+        const detail = (e && (e.details || e.hint)) || "Has alcanzado el máximo de productos publicados para tu plan. Actualiza tu plan para publicar más.";
+        toast.error(detail);
       } else {
         toast.error(`No se pudo crear el producto: ${msg}`);
       }

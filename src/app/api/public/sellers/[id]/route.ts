@@ -105,6 +105,13 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
         likes_count = likeRows?.[0]?.likes_count ?? 0;
       }
 
+      // Recalcular conteo de productos publicados (la vista puede no aplicar el filtro)
+      const { count: published_products_count } = await supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", id)
+        .eq("published", true);
+
       // Obtener teléfono desde profiles para normalizarlo (la vista puede no exponerlo)
       let phone: string | null = null;
       {
@@ -146,7 +153,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
             joined_at: row.joined_at ?? null,
             plan_code: row.plan_code ?? null,
             plan_label,
-            products_count: row.products_count ?? 0,
+            products_count: published_products_count || 0,
             likes_count,
             phone,
           },
@@ -240,7 +247,8 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     const { count: products_count } = await supabase
       .from("products")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", id);
+      .eq("user_id", id)
+      .eq("published", true);
 
     // Conteo de likes
     let likes_count = 0;

@@ -76,11 +76,20 @@ html,
 body,
 :root {
   height: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 html {
-  overflow-y: auto;
-  scrollbar-gutter: stable both-edges;
+  scroll-behavior: smooth;
+}
+
+body {
+  position: relative;
+  min-height: 100%;
+  overflow-y: auto; /* scroll nativo sin forzar reserva permanente del canal */
+  display: flex;
+  flex-direction: column;
 }
 
 @layer base {

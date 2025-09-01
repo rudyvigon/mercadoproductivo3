@@ -50,7 +50,7 @@ export default function SiteHeader() {
   const [profileName, setProfileName] = useState<string | null>(null);
   const [profileCompany, setProfileCompany] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(true);
-  const { unreadCount } = useMessagesNotifications();
+  const { unreadCount, setUnreadCount } = useMessagesNotifications();
   const [accountOpen, setAccountOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -187,6 +187,79 @@ export default function SiteHeader() {
 
   // Badge rojo: mostrar si hay no leídos
 
+  // Carga inicial del contador de no leídos (desktop)
+  useEffect(() => {
+    let active = true;
+    async function loadUnread() {
+      try {
+        if (!user?.id) return;
+        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
+        if (!active) return;
+        if (res.ok) {
+          const j = await res.json();
+          const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+          const unread = list
+            .filter((c: any) => !c?.hidden_at)
+            .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
+          setUnreadCount(unread);
+        }
+      } catch {
+        // ignorar
+      }
+    }
+    loadUnread();
+    return () => { active = false; };
+  }, [user?.id, setUnreadCount]);
+
+  // Polling periódico como respaldo (cada 20s)
+  useEffect(() => {
+    if (!user?.id) return;
+    let timer: any;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
+        if (res.ok) {
+          const j = await res.json();
+          const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+          const unread = list
+            .filter((c: any) => !c?.hidden_at)
+            .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
+          setUnreadCount(unread);
+        }
+      } catch {}
+      timer = setTimeout(tick, 5000);
+    };
+    timer = setTimeout(tick, 5000);
+    return () => { try { clearTimeout(timer); } catch {} };
+  }, [user?.id, setUnreadCount]);
+
+  // Re-sincronizar cuando la pestaña vuelve a estar activa
+  useEffect(() => {
+    const onVis = () => {
+      try {
+        if (document.visibilityState === "visible") {
+          // reutiliza la carga inicial
+          (async () => {
+            try {
+              if (!user?.id) return;
+              const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
+              if (res.ok) {
+                const j = await res.json();
+                const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
+                const unread = list
+                  .filter((c: any) => !c?.hidden_at)
+                  .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
+                setUnreadCount(unread);
+              }
+            } catch {}
+          })();
+        }
+      } catch {}
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [user?.id, setUnreadCount]);
+
   async function handleSignOut() {
     // Cerrar menú antes de desloguear
     try { setAccountOpen(false); } catch {}
@@ -252,13 +325,13 @@ export default function SiteHeader() {
               {isLarge && <MessagesPush sellerId={user?.id} messagesHref={messagesHref} />}
 
               {/* Ícono de mensajes con badge rojo */}
-              <Link href={messagesHref} aria-label="Mensajes">
+              <Link href={messagesHref} aria-label="Mensajes" onClick={() => setUnreadCount(0)}>
                 <button
                   className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[#f06d04]/10"
                 >
                   <MessageSquare className="h-5 w-5" />
                   {unreadCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
+                    <span className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full bg-red-500" />
                   ) : null}
                 </button>
               </Link>

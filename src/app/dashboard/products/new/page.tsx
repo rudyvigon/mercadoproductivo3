@@ -21,12 +21,13 @@ export default async function NewProductPage() {
     redirect("/profile");
   }
 
-  // Calcular campos faltantes de perfil (incluye CP) para informar en el formulario
+  // Calcular campos faltantes de perfil (incluye CP) y obtener plan_code
   let missingLabels: string[] = [];
+  let planCode: string | null = null;
   try {
     const { data, error } = await supabase
       .from("profiles")
-      .select("first_name,last_name,dni_cuit,address,city,province,postal_code")
+      .select("first_name,last_name,dni_cuit,address,city,province,postal_code,plan_code")
       .eq("id", user.id)
       .single();
     if (!error) {
@@ -43,8 +44,36 @@ export default async function NewProductPage() {
         // @ts-ignore
         if (!data?.[key] || String(data?.[key]).trim().length === 0) missingLabels.push(label);
       });
+      // @ts-ignore
+      planCode = (data?.plan_code || "").toString() || null;
     }
   } catch {}
+
+  // Validación SSR del límite: contar publicados y comparar contra plan
+  let maxProducts: number | null = null;
+  if (planCode) {
+    try {
+      const { data: plan } = await supabase
+        .from("plans")
+        .select("max_products")
+        .eq("code", planCode)
+        .maybeSingle();
+      const mp = (plan as any)?.max_products;
+      maxProducts = typeof mp === "number" ? mp : (mp != null ? Number(mp) : null);
+    } catch {}
+  }
+
+  let currentCount = 0;
+  try {
+    const { count } = await supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("published", true);
+    currentCount = count ?? 0;
+  } catch {}
+
+  const limitReached = typeof maxProducts === "number" ? currentCount >= maxProducts : false;
 
   return (
     <div className="mx-auto max-w-4xl p-4 space-y-4 sm:p-6 sm:space-y-6">
@@ -58,17 +87,34 @@ export default async function NewProductPage() {
             </Link>
           </div>
 
-          <section className="grid grid-cols-1 gap-4 sm:gap-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Datos del producto</CardTitle>
-                <CardDescription>Ingresa información precisa para facilitar la compra</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ProductForm missingLabels={missingLabels} />
-              </CardContent>
-            </Card>
-          </section>
+          {limitReached ? (
+            <section className="grid grid-cols-1 gap-4 sm:gap-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Límite de publicaciones alcanzado</CardTitle>
+                  <CardDescription>
+                    Ya tienes {currentCount} producto(s) publicados y tu plan permite un máximo de {maxProducts ?? "—"}.
+                    Para publicar más, actualiza tu plan.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link href="/planes" className="text-primary underline">Ver planes</Link>
+                </CardContent>
+              </Card>
+            </section>
+          ) : (
+            <section className="grid grid-cols-1 gap-4 sm:gap-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Datos del producto</CardTitle>
+                  <CardDescription>Ingresa información precisa para facilitar la compra</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ProductForm missingLabels={missingLabels} />
+                </CardContent>
+              </Card>
+            </section>
+          )}
     </div>
   );
 }

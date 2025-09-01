@@ -92,8 +92,23 @@ export async function GET(req: Request) {
       );
     }
 
-    // Obtener conteo de likes para los exportadores listados
+    // Recalcular conteo de productos publicados por vendedor para visibilidad pública
     const sellerIds = (data || []).map((row: any) => row.seller_id);
+    let publishedCountBySeller = new Map<string, number>();
+    if (sellerIds.length > 0) {
+      const pairs = await Promise.all(
+        sellerIds.map(async (sid: string) => {
+          const { count: c } = await supabase
+            .from("products")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", sid)
+            .eq("published", true);
+          return [sid, c || 0] as [string, number];
+        })
+      );
+      publishedCountBySeller = new Map(pairs);
+    }
+    // Obtener conteo de likes para los exportadores listados
     let likesById = new Map<string, number>();
     if (sellerIds.length > 0) {
       const { data: likeRows } = await supabase
@@ -114,13 +129,18 @@ export async function GET(req: Request) {
         plan_code: row.plan_code ?? null,
         plan_label: planName || planCodeToLabel(row.plan_code),
         joined_at: row.joined_at,
-        products_count: row.products_count ?? 0,
+        products_count: publishedCountBySeller.get(row.seller_id) || 0,
         likes_count: likesById.get(row.seller_id) || 0,
         city: row.city ?? null,
         province: row.province ?? null,
         updated_at: row.updated_at,
       };
     });
+
+    // Reordenar por products_count recalculado si corresponde
+    if (orderColumn === "products_count") {
+      items.sort((a: any, b: any) => (orderDir === "asc" ? (a.products_count - b.products_count) : (b.products_count - a.products_count)));
+    }
 
     const total = count || 0;
     const total_pages = Math.max(1, Math.ceil(total / pageSize));

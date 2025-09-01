@@ -22,7 +22,7 @@ const inter = Inter({ subsets: ["latin"] });
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={`min-h-screen antialiased ${inter.className}`}>
+      <body className={`antialiased ${inter.className} w-full`}>
         <ThemeProvider>
           <AppShell>
             {children}

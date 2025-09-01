@@ -76,12 +76,29 @@ export default function MessagesPush({ sellerId, messagesHref }: { sellerId?: st
         toast(`Tienes un mensaje nuevo`, {
           description: preview,
           duration: 4500,
+          // Estilo global del botón de acción (Sonner lo soporta a nivel de toast)
+          actionButtonStyle: {
+            backgroundColor: "#f06d04",
+            color: "#ffffff",
+            borderRadius: 9999,
+            padding: "6px 10px",
+          },
+          classNames: {
+            actionButton: "hover:opacity-90",
+          },
           action: {
             label: "Ver mensajes",
             onClick: () => {
               try {
+                // Limpiar el contador al ir a mensajes
+                setUnreadCount(0);
                 window.location.href = messagesHref || "/dashboard/messages";
               } catch {}
+            },
+            // Redundante por compatibilidad: también en el nivel de action
+            actionButtonStyle: {
+              backgroundColor: "#f06d04",
+              color: "#ffffff",
             },
           },
         });

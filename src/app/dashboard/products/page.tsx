@@ -91,7 +91,17 @@ export default async function ProductsDashboardPage() {
       maxProducts = typeof mp === "number" ? mp : (mp != null ? Number(mp) : null);
     } catch {}
   }
-  const currentCount = (products?.length ?? 0);
+  // Conteo actual de productos publicados desde la BD (no usamos products.length)
+  let currentCount = 0;
+  try {
+    const { count: publishedCount } = await supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("published", true);
+    currentCount = publishedCount ?? 0;
+  } catch {}
+
   const limitReached = typeof maxProducts === "number" ? currentCount >= maxProducts : false;
 
   // Ordenar en memoria: destacados vigentes primero, luego por fecha de creación desc

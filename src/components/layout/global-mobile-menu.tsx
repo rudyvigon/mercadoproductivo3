@@ -202,7 +202,7 @@ export default function GlobalMobileMenu() {
       {user && isSmall && <MessagesPush sellerId={user.id} messagesHref={messagesHref} />}
       {/* Acceso flotante a Mensajes */}
       {user && (
-        <Link href={messagesHref} aria-label="Ir a mensajes">
+        <Link href={messagesHref} aria-label="Ir a mensajes" onClick={() => setUnreadCount(0)}>
           <Button
             size="icon"
             className={cn(

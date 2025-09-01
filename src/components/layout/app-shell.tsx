@@ -64,7 +64,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [supabase]);
 
   return (
-    <div className={`flex min-h-screen flex-col ${!isAuth ? 'pt-header-safe' : ''}`}>
+    <div className={`flex min-h-screen w-full flex-col ${!isAuth ? 'pt-header-safe' : ''}`}>
       {/* Sincroniza la cookie de sesión de Supabase en cliente */}
       <SupabaseListener />
       {/* Fallback de notificaciones en escritorio cuando no hay header (rutas /auth) */}
@@ -72,7 +72,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <MessagesPush sellerId={user.id} messagesHref={messagesHref} />
       ) : null}
       {!isAuth && <SiteHeader />}
-      <div className="flex-1">{children}</div>
+      <main className="flex-1 w-full">
+        {children}
+      </main>
       {!isAuth && <SiteFooter />}
     </div>
   );

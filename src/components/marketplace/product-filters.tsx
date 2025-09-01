@@ -109,6 +109,7 @@ export default function ProductFilters({
       const { data, error } = await supabase
         .from('products')
         .select('location')
+        .eq('published', true)
         .not('location', 'is', null)
         .neq('location', '')
         .ilike('location', `%${q}%`)
