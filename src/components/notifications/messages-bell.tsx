@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
 import { Bell } from "lucide-react";
-import { useMessagesNotifications } from "@/store/messages-notifications";
+import { useNotifications } from "@/providers/notifications-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,46 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function MessagesBell() {
-  const { unreadCount, recent, setUnreadCount, setRecent } = useMessagesNotifications();
-
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      try {
-        const res = await fetch(`/api/chat/conversations`, { cache: "no-store" });
-        if (!active) return;
-        if (!res.ok) return;
-        const j = await res.json();
-        const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
-        // no leídos totales
-        const unread = list.reduce((acc, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
-        setUnreadCount(unread);
-        // recientes (top 5)
-        const ts = (it: any) => String(it?.last_created_at || it?.last_at || it?.updated_at || it?.created_at || "");
-        const getText = (it: any) =>
-          String(it?.preview || it?.last_subject || it?.last_message || it?.last_body || it?.topic || "Nueva actividad");
-        const getName = (it: any) => String(it?.counterparty_name || it?.title || it?.topic || "—");
-        const recentItems = [...list]
-          .sort((a, b) => new Date(ts(b)).getTime() - new Date(ts(a)).getTime())
-          .slice(0, 5)
-          .map((c: any) => ({
-            id: String(c?.id || c?.conversation_id || `${ts(c)}-${Math.random().toString(36).slice(2)}`),
-            created_at: ts(c),
-            seller_id: String(c?.owner_id || c?.user_id || ""),
-            sender_name: getName(c),
-            subject: getText(c),
-            body: undefined as string | undefined,
-          }));
-        setRecent(recentItems);
-      } catch {
-        // ignore network/auth errors
-      }
-    }
-    load();
-    return () => {
-      active = false;
-    };
-  }, [setUnreadCount, setRecent]);
+  const { unreadCount, recent } = useNotifications();
 
   return (
     <DropdownMenu>

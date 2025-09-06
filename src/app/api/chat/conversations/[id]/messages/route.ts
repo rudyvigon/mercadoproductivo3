@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPusher } from "@/lib/pusher/server";
+import { trySendWebPush } from "@/lib/push/server";
 import { getSenderDisplayName } from "@/lib/names";
 
 export const dynamic = "force-dynamic";
@@ -53,13 +54,33 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
 
     const url = new URL(req.url);
     const limit = Math.max(1, Math.min(200, parseInt(url.searchParams.get("limit") || "50", 10)));
+    const afterParam = url.searchParams.get("after");
+    const beforeParam = url.searchParams.get("before");
+    const orderParam = String(url.searchParams.get("order") || "asc").toLowerCase();
+    const ascending = orderParam !== "desc";
 
-    const { data: rows, error } = await supabase
+    let query = supabase
       .from("chat_messages")
       .select("id,sender_id,body,created_at")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(limit);
+      .eq("conversation_id", conversationId);
+
+    // Ventana temporal: preferir 'before' para paginar hacia atrás; si no, aplicar 'after' para incremental
+    if (beforeParam) {
+      const d = new Date(beforeParam);
+      if (!Number.isNaN(d.getTime())) {
+        query = query.lt("created_at", d.toISOString());
+      }
+    } else if (afterParam) {
+      const d = new Date(afterParam);
+      if (!Number.isNaN(d.getTime())) {
+        query = query.gt("created_at", d.toISOString());
+      }
+    }
+
+    // Orden estable por fecha y desempate por id
+    query = query.order("created_at", { ascending }).order("id", { ascending }).limit(limit);
+
+    const { data: rows, error } = await query;
     if (error) return NextResponse.json({ error: "LOAD_FAILED", message: error.message }, { status: 500 });
 
     // Enriquecer con datos de perfil (nombre, email, avatar)
@@ -153,7 +174,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       .single();
     if (error) return NextResponse.json({ error: "INSERT_FAILED", message: error.message }, { status: 500 });
 
-    // Emitir eventos en Pusher
+    // Emitir eventos en Pusher y (opcionalmente) Web Push
     try {
       const admin = createAdminClient();
       const { data: members } = await admin
@@ -204,6 +225,27 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           p.trigger(`private-user-${uid}`, "chat:conversation:updated", { conversation_id: conversationId })
         );
       }
+      // Intentar Web Push hacia los otros miembros (si hay suscripciones y claves VAPID configuradas)
+      try {
+        const targetIds = memberIds.filter((uid: string) => String(uid) !== String(user.id));
+        if (targetIds.length > 0) {
+          const { data: subs } = await admin
+            .from("push_subscriptions")
+            .select("endpoint,p256dh,auth,user_id")
+            .in("user_id", targetIds);
+          const payload = {
+            title: "Nuevo mensaje",
+            body,
+            url: "/dashboard/messages",
+            icon: "/favicon.ico",
+          };
+          const sendTasks = (subs || []).map((s: any) => trySendWebPush(s.endpoint, { p256dh: s.p256dh || undefined, auth: s.auth || undefined }, payload));
+          if (sendTasks.length > 0) {
+            // No bloquear respuesta por Web Push; fire-and-forget
+            Promise.allSettled(sendTasks).catch(() => {});
+          }
+        }
+      } catch {}
       await Promise.all(tasks);
     } catch (e) {
       // swallow
@@ -219,4 +261,3 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: "INTERNAL_ERROR", message: e?.message || String(e) }, { status: 500 });
   }
 }
-

@@ -18,33 +18,7 @@ import { RiShoppingCart2Fill } from "react-icons/ri";
 import { createClient } from "@/lib/supabase/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
-import { useMessagesNotifications } from "@/store/messages-notifications";
-import MessagesPush from "@/components/notifications/messages-push";
-
-// Hook de media query a nivel de módulo (evita redefinición por render y cumple reglas de hooks)
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !("matchMedia" in window)) return;
-    const mql = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
-    setMatches(mql.matches);
-    try {
-      mql.addEventListener("change", onChange);
-      return () => mql.removeEventListener("change", onChange);
-    } catch {
-      // @ts-ignore - compat Safari
-      mql.addListener(onChange);
-      return () => {
-        try {
-          // @ts-ignore
-          mql.removeListener(onChange);
-        } catch {}
-      };
-    }
-  }, [query]);
-  return matches;
-}
+import { useNotifications } from "@/providers/notifications-provider";
 
 // Items de navegación principal
 const mainNavItems = [
@@ -72,9 +46,7 @@ export default function GlobalMobileMenu() {
   const pathname = usePathname();
   // Memoizar el cliente para que la identidad sea estable entre renders
   const supabase = useMemo(() => createClient(), []);
-  const { unreadCount, setUnreadCount } = useMessagesNotifications();
-  // Hook para detectar pantallas pequeñas (móvil): < 1024px
-  const isSmall = useMediaQuery("(max-width: 1023px)");
+  const { unreadCount } = useNotifications();
   // Ordenar alfabéticamente los items del dashboard (español, sin distinguir mayúsculas/acentos)
   const sortedDashboardItems = useMemo(
     () => [...dashboardNavItems].sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" })),
@@ -173,36 +145,11 @@ export default function GlobalMobileMenu() {
     window.location.href = "/";
   };
 
-  // Cargar contador inicial de no leídos (en móvil no montamos MessagesBell)
-  useEffect(() => {
-    let active = true;
-    async function loadUnread() {
-      try {
-        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
-        if (!active) return;
-        if (res.ok) {
-          const j = await res.json();
-          const list = Array.isArray(j?.conversations) ? j.conversations : [];
-          const unread = list
-            .filter((c: any) => !c?.hidden_at)
-            .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
-          setUnreadCount(unread);
-        }
-      } catch {
-        // Ignorar errores y mantener valor actual
-      }
-    }
-    loadUnread();
-    return () => { active = false; };
-  }, [setUnreadCount]);
-
   return (
     <div className="fixed-safe-br z-50 lg:hidden flex flex-col items-end gap-3">
-      {/* Suscripciones realtime para móvil (toasts) - solo en pantallas pequeñas */}
-      {user && isSmall && <MessagesPush sellerId={user.id} messagesHref={messagesHref} />}
       {/* Acceso flotante a Mensajes */}
       {user && (
-        <Link href={messagesHref} aria-label="Ir a mensajes" onClick={() => setUnreadCount(0)}>
+        <Link href={messagesHref} aria-label="Ir a mensajes">
           <Button
             size="icon"
             className={cn(
@@ -210,8 +157,12 @@ export default function GlobalMobileMenu() {
               "border",
               unreadCount > 0 ? "border-red-500 ring-2 ring-red-500/40" : "border-[#f06d04]"
             )}
+            aria-label={unreadCount > 0 ? `Mensajes, ${unreadCount} sin leer` : "Mensajes"}
           >
             <MessageSquare className="h-6 w-6" />
+            <span className="sr-only" aria-live="polite" aria-atomic="true">
+              {unreadCount > 0 ? `${unreadCount} mensajes sin leer` : `Sin mensajes nuevos`}
+            </span>
           </Button>
         </Link>
       )}

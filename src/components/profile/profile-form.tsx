@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -173,8 +173,8 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
   const isInitializing = useRef(true);
   const initialValuesRef = useRef<ProfileFormValues | null>(null);
 
-  // Helper para cargar localidades de una provincia
-  const loadLocalities = async (prov: string, preserveCity: boolean) => {
+  // Helper para cargar localidades de una provincia (memoizado)
+  const loadLocalities = useCallback(async (prov: string, preserveCity: boolean) => {
     if (!prov) {
       setLocalities([]);
       return;
@@ -198,7 +198,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     } finally {
       setLoadingLocalities(false);
     }
-  };
+  }, [form]);
 
   // Cargar localidades cuando cambia provincia
   useEffect(() => {
@@ -214,7 +214,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       }
     });
     return () => subscription.unsubscribe();
-  }, [form]);
+  }, [form, loadLocalities]);
 
   useEffect(() => {
     let mounted = true;
@@ -278,7 +278,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       isInitializing.current = false;
     })();
     return () => { mounted = false; };
-  }, [form, supabase]);
+  }, [form, supabase, loadLocalities]);
 
   async function handleAvatarSelected(file: File) {
     if (!file) return;
@@ -389,7 +389,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     }
   }
 
-  async function onSubmit(values: ProfileFormValues) {
+  const onSubmit = useCallback(async (values: ProfileFormValues) => {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -483,12 +483,12 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
     } finally {
       setSaving(false);
     }
-  }
+  }, [form, supabase, onSaved]);
 
   // Exponer submit externo si se solicita
   useEffect(() => {
     if (!registerSubmit) return;
-    const submit = () => form.handleSubmit(onSubmit)();
+    const submit = () => form.handleSubmit(onSubmit as any)();
     registerSubmit(submit);
   }, [form, registerSubmit, onSubmit]);
 
@@ -512,7 +512,7 @@ export default function ProfileForm({ disabled = false, hideInternalSubmit = fal
       }
     };
     registerReset(reset);
-  }, [form, registerReset]);
+  }, [form, registerReset, loadLocalities]);
 
   if (loading) {
     return (

@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getPusherClient, subscribePrivate } from "@/lib/pusher/client";
+import { ConvUpdateEventSchema, ConvReadEventSchema } from "@/lib/chat/events";
 import { useMessagesNotifications } from "@/store/messages-notifications";
 import SellerConversationPanel from "@/components/chat/seller-conversation-panel";
 import { normalizeAvatarUrl, initialFrom, type PublicProfile } from "@/lib/user-display";
@@ -85,6 +86,8 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
 
   const [loading, setLoading] = useState(false);
   const [itemsAll, setItemsAll] = useState<ChatV2Conversation[]>([]);
+  const itemsRef = useRef<ChatV2Conversation[]>([]);
+  useEffect(() => { itemsRef.current = itemsAll; }, [itemsAll]);
   const [profilesById, setProfilesById] = useState<Record<string, PublicProfile>>({});
   const [fallbackByConvId, setFallbackByConvId] = useState<Record<string, { name?: string | null; avatar?: string | null }>>({});
 
@@ -102,6 +105,29 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
   const dragHandleRef = useRef<HTMLDivElement | null>(null);
 
   const { setUnreadCount } = useMessagesNotifications();
+
+  // Persistencia de incrementos locales por conversación (para cubrir carreras al entrar desde otra vista)
+  const PENDING_KEY = "mp:pending-unread";
+  const readPending = useCallback((): Record<string, { delta?: number; last_at?: string | null }> => {
+    try {
+      if (typeof window === "undefined") return {};
+      const raw = localStorage.getItem(PENDING_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, []);
+  const clearPending = useCallback((convId: string) => {
+    try {
+      if (!convId || typeof window === "undefined") return;
+      const raw = localStorage.getItem(PENDING_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      if (map[convId]) {
+        delete map[convId];
+        localStorage.setItem(PENDING_KEY, JSON.stringify(map));
+      }
+    } catch {}
+  }, []);
 
   const visible = useMemo(() => itemsAll.filter((c) => !c.hidden_at), [itemsAll]);
   const hidden = useMemo(() => itemsAll.filter((c) => !!c.hidden_at), [itemsAll]);
@@ -156,7 +182,50 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
       const j = await res.json();
       if (!res.ok) throw new Error(j?.message || j?.error || "No se pudo cargar la bandeja");
       const list: ChatV2Conversation[] = Array.isArray(j?.conversations) ? j.conversations : [];
-      setItemsAll(list);
+      // Merge monótonico: preservar preview/fecha si el estado local es más reciente (evita "retrocesos")
+      let merged: ChatV2Conversation[] = list;
+      setItemsAll((prev) => {
+        const prevById = new Map(prev.map((c) => [c.id, c] as const));
+        // Leer pendientes una sola vez por refresh
+        const pendingMap = readPending();
+        merged = list.map((next) => {
+          const old = prevById.get(next.id);
+          // Resolver preview/fecha/hidden_at con comportamiento monótonico
+          let base: ChatV2Conversation = next;
+          if (old) {
+            const oldTs = new Date(old.last_created_at || 0).getTime();
+            const nextTs = new Date(next.last_created_at || 0).getTime();
+            if (oldTs > nextTs) {
+              base = {
+                ...next,
+                // Mantener más reciente desde realtime
+                last_created_at: old.last_created_at,
+                preview: old.preview ?? next.preview,
+                // Si el realtime auto-desocultó (old.hidden_at === null), preservar null
+                hidden_at: old.hidden_at === null ? null : next.hidden_at,
+              } as ChatV2Conversation;
+            }
+          }
+
+          // unread_count monótonico: preservar el mayor entre local y servidor
+          const oldUnread = Number(old?.unread_count || 0) || 0;
+          const nextUnread = Number(next.unread_count || 0) || 0;
+          let computedUnread = Math.max(oldUnread, nextUnread);
+          // Aplicar pendiente local (sin sumar, usando máximo para evitar duplicados)
+          try {
+            const p = pendingMap?.[next.id];
+            const pendingDelta = Math.max(0, Number(p?.delta) || 0);
+            computedUnread = Math.max(computedUnread, pendingDelta);
+          } catch {}
+          // Si esta conversación está abierta, forzar 0 localmente
+          if (chatConversationId && String(chatConversationId) === String(next.id)) {
+            computedUnread = 0;
+          }
+
+          return { ...base, unread_count: computedUnread } as ChatV2Conversation;
+        });
+        return merged;
+      });
       // Pre-poblar perfiles mínimos con datos de la conversación para evitar "—" en el listado
       if (list.length > 0) {
         setProfilesById((prev) => {
@@ -177,74 +246,135 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
           return next;
         });
       }
-      // Enriquecer perfiles públicos faltantes por counterparty_id
-      const ids = Array.from(
-        new Set(
-          list
-            .map((c) => c.counterparty_id)
-            .filter((id): id is string => Boolean(id) && !profilesRef.current[id as string])
-        )
+          // Cargar perfiles faltantes en lote
+      const missingProfiles = list
+        .filter(c => c.counterparty_id && !profilesRef.current[c.counterparty_id])
+        .map(c => c.counterparty_id as string);
+      
+      if (missingProfiles.length > 0) {
+        try {
+          const batchSize = 5; // Procesar en lotes de 5 para evitar sobrecarga
+          for (let i = 0; i < missingProfiles.length; i += batchSize) {
+            const batch = missingProfiles.slice(i, i + batchSize);
+            const results = await Promise.all(
+              batch.map(async (id) => {
+                try {
+                  const r = await fetch(`/api/public/sellers/${encodeURIComponent(id)}`, { 
+                    cache: "force-cache",
+                    next: { revalidate: 3600 } // Cachear perfiles por 1 hora
+                  });
+                  if (!r.ok) throw new Error('Failed to fetch profile');
+                  const jj = await r.json();
+                  return { id, profile: jj?.seller as PublicProfile | undefined };
+                } catch {
+                  return { id, profile: undefined };
+                }
+              })
+            );
+            
+            const updates = results.reduce<Record<string, PublicProfile>>((acc, { id, profile }) => {
+              if (profile) acc[id] = profile;
+              return acc;
+            }, {});
+            
+            if (Object.keys(updates).length > 0) {
+              setProfilesById(prev => ({ ...prev, ...updates }));
+            }
+          }
+        } catch (error) {
+          console.error('Error loading profiles:', error);
+        }
+      }
+      // Fallback opcional: cargar nombres/avatares desde mensajes solo para conversaciones visibles
+      // y solo si realmente faltan tanto el nombre como el avatar
+      const visibleConversations = list.filter(c => !c.hidden_at);
+      const needFallback = visibleConversations.filter(c => 
+        !String(c.counterparty_name || '').trim() && 
+        !String(c.counterparty_avatar_url || '').trim()
       );
-      if (ids.length > 0) {
-        const results = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              const r = await fetch(`/api/public/sellers/${encodeURIComponent(id)}`, { cache: "no-store" });
-              const jj = await r.json();
-              if (!r.ok) return { id, profile: undefined } as { id: string; profile?: PublicProfile };
-              return { id, profile: jj?.seller as PublicProfile };
-            } catch {
-              return { id, profile: undefined } as { id: string; profile?: PublicProfile };
-            }
-          })
-        );
-        const updates: Record<string, PublicProfile> = {};
-        for (const it of results) {
-          if (it.profile) updates[it.id] = it.profile;
-        }
-        if (Object.keys(updates).length > 0) {
-          setProfilesById((prev) => ({ ...prev, ...updates }));
-        }
-      }
-      // Fallback adicional: obtener nombre y avatar desde el ÚLTIMO mensaje entrante cuando falte nombre o avatar
-      const needFallbackIds = list
-        .filter((c) => !String(c.counterparty_name || "").trim() || !String(c.counterparty_avatar_url || "").trim())
-        .map((c) => c.id);
-      if (needFallbackIds.length > 0) {
-        const out = await Promise.all(
-          needFallbackIds.map(async (cid) => {
-            try {
-              const r = await fetch(`/api/chat/conversations/${encodeURIComponent(cid)}/messages?limit=50`, { cache: "no-store" });
-              const jj = await r.json();
-              if (!r.ok) return { cid } as { cid: string; name?: string; avatar?: string };
-              const arr = Array.isArray(jj?.messages) ? (jj.messages as any[]) : [];
-              const lastIncoming = [...arr].reverse().find((m) => String(m?.sender_id || "") !== String(userId));
-              const name = (lastIncoming?.sender_name || "").toString().trim();
-              const avatar = normalizeAvatarUrl(lastIncoming?.avatar_url) || undefined;
-              if (!name && !avatar) return { cid } as { cid: string; name?: string; avatar?: string };
-              return { cid, name, avatar } as { cid: string; name?: string; avatar?: string };
-            } catch {
-              return { cid } as { cid: string; name?: string; avatar?: string };
-            }
-          })
-        );
-        const updates: Record<string, { name?: string | null; avatar?: string | null }> = {};
-        for (const it of out) {
-          if (it.name || it.avatar) updates[it.cid] = { name: it.name || null, avatar: it.avatar || null };
-        }
-        if (Object.keys(updates).length > 0) {
-          setFallbackByConvId((prev) => ({ ...prev, ...updates }));
+      
+      if (needFallback.length > 0) {
+        // Cargar solo las conversaciones visibles que necesitan datos
+        const batchSize = 3; // Reducir el batch size para evitar sobrecarga
+        for (let i = 0; i < needFallback.length; i += batchSize) {
+          const batch = needFallback.slice(i, i + batchSize);
+          const results = await Promise.all(
+            batch.map(async (c) => {
+              try {
+                const r = await fetch(`/api/chat/conversations/${encodeURIComponent(c.id)}/messages?limit=1&order=desc`, { 
+                  cache: "force-cache",
+                  next: { revalidate: 300 } // Cache por 5 minutos
+                });
+                if (!r.ok) return { cid: c.id };
+                
+                const jj = await r.json();
+                const messages = Array.isArray(jj?.messages) ? jj.messages : [];
+                const lastMessage = messages[0]; // Ya está ordenado por fecha descendente
+                
+                if (!lastMessage) return { cid: c.id };
+                
+                return {
+                  cid: c.id,
+                  name: String(lastMessage?.sender_name || '').trim() || undefined,
+                  avatar: normalizeAvatarUrl(lastMessage?.avatar_url) || undefined
+                };
+              } catch {
+                return { cid: c.id };
+              }
+            })
+          );
+          
+          // Aplicar actualizaciones por batch
+          const updates = results.reduce<Record<string, { name?: string | null; avatar?: string | null }>>((acc, { cid, name, avatar }) => {
+            if (name || avatar) acc[cid] = { name: name || null, avatar: avatar || null };
+            return acc;
+          }, {});
+          
+          if (Object.keys(updates).length > 0) {
+            setFallbackByConvId(prev => ({ ...prev, ...updates }));
+          }
+          
+          // Pequeña pausa entre lotes para no saturar
+          if (i + batchSize < needFallback.length) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
         }
       }
-      // no leídos visibles
-      const unread = list.filter((c) => !c.hidden_at).reduce((acc, it) => acc + (Number(it.unread_count || 0) || 0), 0);
-      setUnreadCount(unread);
+      // no leídos visibles (usar merged)
+      const unread = merged
+        .filter((c) => !c.hidden_at)
+        .reduce((acc, it) => acc + (Number(it.unread_count || 0) || 0), 0);
+      // En la bandeja: usar valor EXACTO (no monótonico) para alinear el badge global
+      try {
+        setUnreadCount(unread);
+      } catch {}
     } catch (e: any) {
       toast.error(e?.message || "Error al cargar conversaciones");
     } finally {
       setLoading(false);
     }
-  }, [setUnreadCount, userId]);
+  }, [setUnreadCount, userId, chatConversationId]);
+
+  // Reintentos breves tras montar: si el store global indica más no leídos que la lista local, forzar nuevos refresh
+  useEffect(() => {
+    let timers: any[] = [];
+    const tryResync = () => {
+      try {
+        const storeUnread = (useMessagesNotifications as any).getState().unreadCount as number;
+        const localUnread = (itemsRef.current || [])
+          .filter((c) => !c.hidden_at)
+          .reduce((acc, it) => acc + (Number(it.unread_count || 0) || 0), 0);
+        if (storeUnread > localUnread) {
+          refresh();
+        }
+      } catch {}
+    };
+    // intentos a 450ms y 1100ms desde el montaje
+    timers.push(setTimeout(tryResync, 450));
+    timers.push(setTimeout(tryResync, 1100));
+    return () => { for (const t of timers) try { clearTimeout(t); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Optimista: cuando el panel marca la conversación como leída, reflejarlo en la lista sin esperar al refresh
   const onConversationRead = useCallback(
@@ -255,6 +385,8 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
         updated = prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c));
         return updated;
       });
+      // Limpiar pendientes locales para esta conversación
+      try { clearPending(conversationId); } catch {}
       try {
         const unread = updated
           .filter((c) => !c.hidden_at)
@@ -262,35 +394,63 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
         setUnreadCount(unread);
       } catch {}
     },
-    [setUnreadCount]
+    [setUnreadCount, clearPending]
   );
 
+  // Cargar conversaciones solo una vez al montar y cuando cambia el userId
+  const isMounted = useRef(false);
   useEffect(() => {
-    const t = setTimeout(refresh, 100);
-    return () => clearTimeout(t);
-    // Llamar una vez por usuario; evitar depender de `refresh` para no entrar en bucles
+    if (isMounted.current) return;
+    isMounted.current = true;
+    refresh();
+    // Segundo refresh con pequeño delay para capturar contadores que llegan con retraso
+    const t = setTimeout(() => {
+      try { refresh(); } catch {}
+    }, 380);
+    return () => { try { clearTimeout(t); } catch {} };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Realtime: canal del usuario
+  // Refrescar al recuperar foco/visibilidad (entrar desde otra vista, cambiar de pestaña, etc.)
+  useEffect(() => {
+    const onFocus = () => { try { refresh(); } catch {} };
+    const onVis = () => {
+      try {
+        if (document.visibilityState === "visible") refresh();
+      } catch {}
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [refresh]);
+
+  // Realtime: canal del usuario con backoff exponencial + jitter y validación Zod
   useEffect(() => {
     if (!userId) return;
-    
-    const client = getPusherClient();
-    if (!client) return;
-    
-    const channelName = `private-user-${userId}`;
-    const ch = subscribePrivate(channelName);
-    if (!ch) return;
 
-    // Incremento inmediato de no leídos cuando hay nueva actividad en una conversación (evento emitido solo a los otros miembros)
-    const onConvUpdated = (evt: any) => {
-      const cid = evt?.conversation_id as string | undefined;
-      if (!cid) {
-        // Si no llega el id, caemos a un refresh completo
-        refresh();
+    let disposed = false;
+    const channelName = `private-user-${userId}`;
+    let ch: any = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let handlersBound = false;
+
+    // Handlers
+    const onConvUpdated = (raw: any) => {
+      const parsed = ConvUpdateEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.warn("Payload inválido chat:conversation:updated", parsed.error);
+        // Fallback: refresh completo si el evento no es válido
+        try { refresh(); } catch {}
         return;
       }
+      const evt = parsed.data;
+      const cid = evt.conversation_id;
+      const incomingPreview = (evt.preview ?? evt.message_text ?? "").toString();
+      const incomingDate = (evt.last_created_at ?? evt.created_at ?? "") as string;
       setItemsAll((prev) => {
         const exists = prev.some((c) => c.id === cid);
         if (!exists) {
@@ -300,58 +460,119 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
         }
         const updated = prev.map((conv) => {
           if (conv.id !== cid) return conv;
-          // Si la conversación está abierta, no incrementar no leídos; solo auto-unhide
-          if (chatConversationId && String(chatConversationId) === String(cid)) {
-            return { ...conv, hidden_at: null, unread_count: 0 };
-          }
-          // Incremento normal para conversaciones no abiertas
-          return { ...conv, unread_count: (Number(conv.unread_count) || 0) + 1, hidden_at: null };
+          const isOpen = !!(chatConversationId && String(chatConversationId) === String(cid));
+          const nextUnread = isOpen ? 0 : (Number(conv.unread_count) || 0) + 1;
+          const nextPreview = incomingPreview ? incomingPreview : conv.preview;
+          const nextDate = incomingDate ? incomingDate : conv.last_created_at;
+          return {
+            ...conv,
+            hidden_at: null,
+            unread_count: nextUnread,
+            preview: nextPreview,
+            last_created_at: nextDate,
+          };
         });
         const totalUnread = updated
           .filter((c) => !c.hidden_at)
           .reduce((sum, c) => sum + (Number(c.unread_count) || 0), 0);
-        setUnreadCount(totalUnread);
+        // Monótonico: no bajar el badge global por carreras
+        try {
+          const prev = (useMessagesNotifications as any).getState().unreadCount as number;
+          setUnreadCount(totalUnread > prev ? totalUnread : prev);
+        } catch {
+          setUnreadCount(totalUnread);
+        }
         return updated;
       });
     };
 
-    // Cambios estructurales: refrescar listado
-    const onConvStarted = async (_evt: any) => {
+    const onConvStarted = async (raw: any) => {
+      const parsed = ConvUpdateEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.warn("Payload inválido chat:conversation:started", parsed.error);
+      }
       await refresh();
     };
-    const onConvHidden = async (_evt: any) => {
+    const onConvHidden = async (raw: any) => {
+      const parsed = ConvUpdateEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.warn("Payload inválido chat:conversation:hidden", parsed.error);
+      }
       await refresh();
     };
-    const onConvRestored = async (_evt: any) => {
+    const onConvRestored = async (raw: any) => {
+      const parsed = ConvUpdateEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.warn("Payload inválido chat:conversation:restored", parsed.error);
+      }
       await refresh();
     };
 
-    // Manejar conversación marcada como leída
-    const onRead = (evt: any) => {
-      const cid = evt?.conversation_id as string | undefined;
-      if (!cid) return;
-      onConversationRead(cid);
+    const onRead = (raw: any) => {
+      const parsed = ConvReadEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.warn("Payload inválido chat:conversation:read", parsed.error);
+        return;
+      }
+      const { conversation_id } = parsed.data;
+      onConversationRead(conversation_id);
     };
 
-    // Bind events
-    ch.bind("chat:conversation:updated", onConvUpdated);
-    ch.bind("chat:conversation:started", onConvStarted);
-    ch.bind("chat:conversation:hidden", onConvHidden);
-    ch.bind("chat:conversation:restored", onConvRestored);
-    ch.bind("chat:conversation:read", onRead);
+    const bindHandlers = () => {
+      if (!ch || handlersBound) return;
+      ch.bind("chat:conversation:updated", onConvUpdated);
+      ch.bind("chat:conversation:started", onConvStarted);
+      ch.bind("chat:conversation:hidden", onConvHidden);
+      ch.bind("chat:conversation:restored", onConvRestored);
+      ch.bind("chat:conversation:read", onRead);
+      handlersBound = true;
+    };
+
+    const unbindHandlers = () => {
+      try {
+        ch?.unbind?.("chat:conversation:updated", onConvUpdated);
+        ch?.unbind?.("chat:conversation:started", onConvStarted);
+        ch?.unbind?.("chat:conversation:hidden", onConvHidden);
+        ch?.unbind?.("chat:conversation:restored", onConvRestored);
+        ch?.unbind?.("chat:conversation:read", onRead);
+      } catch {}
+      handlersBound = false;
+    };
+
+    const scheduleRetry = (status?: number) => {
+      if (disposed) return;
+      if (status === 403) {
+        console.warn("Pusher subscription forbidden (403)", channelName);
+        return;
+      }
+      attempt += 1;
+      const base = 500;
+      const cap = 30000;
+      const backoff = Math.min(cap, Math.round(base * Math.pow(2, attempt)));
+      const jitter = Math.floor(Math.random() * Math.min(1000, Math.max(250, Math.floor(backoff * 0.3))));
+      const delay = backoff + jitter;
+      try { if (retryTimer) clearTimeout(retryTimer); } catch {}
+      retryTimer = setTimeout(trySubscribe, delay);
+    };
+
+    const trySubscribe = () => {
+      if (disposed) return;
+      const client = getPusherClient();
+      if (!client) { scheduleRetry(undefined); return; }
+      ch = subscribePrivate(channelName, {
+        onSubscriptionSucceeded: () => { attempt = 0; bindHandlers(); },
+        onSubscriptionError: (status) => { console.warn("Subscription error", status, channelName); scheduleRetry(status); },
+      });
+      if (!ch) { scheduleRetry(undefined); return; }
+    };
+
+    trySubscribe();
 
     return () => {
-      try {
-        // Unbind all events
-        ch.unbind("chat:conversation:updated", onConvUpdated);
-        ch.unbind("chat:conversation:started", onConvStarted);
-        ch.unbind("chat:conversation:hidden", onConvHidden);
-        ch.unbind("chat:conversation:restored", onConvRestored);
-        ch.unbind("chat:conversation:read", onRead);
-        getPusherClient()?.unsubscribe(channelName);
-      } catch (error) {
-        console.error("Error cleaning up Pusher:", error);
-      }
+      disposed = true;
+      try { if (retryTimer) clearTimeout(retryTimer); } catch {}
+      try { unbindHandlers(); } catch {}
+      try { getPusherClient()?.unsubscribe(channelName); } catch {}
     };
   }, [userId, chatConversationId, refresh, onConversationRead, setUnreadCount]);
 
@@ -383,6 +604,10 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
       null;
     setChatName(name);
     setChatAvatar(avatar);
+    // Abrir conversación: limpiar pendientes para que no se reproyecten en siguientes refresh
+    try { clearPending(c.id); } catch {}
+    // Optimista: marcar como leída para bajar el badge de inmediato
+    try { onConversationRead(c.id); } catch {}
   }
 
   // Gesto de arrastre para cerrar el sheet en móvil (drag handle)
@@ -513,24 +738,17 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
         </TabsList>
 
         <TabsContent value="inbox" className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-1 items-center gap-2">
-              <Input
-                value={q}
-                onChange={(e) => {
-                  setQ(e.target.value);
-                  setVisibleCount(BASE_CHUNK);
-                  setHiddenCount(BASE_CHUNK);
-                }}
-                placeholder="Buscar por nombre o mensaje..."
-                className="max-w-md"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={refresh} disabled={loading}>
-                {loading ? "Cargando..." : "Actualizar"}
-              </Button>
-            </div>
+          <div className="flex flex-1 items-center gap-2">
+            <Input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setVisibleCount(BASE_CHUNK);
+                setHiddenCount(BASE_CHUNK);
+              }}
+              placeholder="Buscar por nombre o mensaje..."
+              className="max-w-md"
+            />
           </div>
 
           <div className="rounded-md border">
@@ -586,13 +804,8 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
         </TabsContent>
 
         <TabsContent value="hidden" className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <div className="text-sm font-medium text-muted-foreground">Conversaciones ocultas</div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={refresh} disabled={loading}>
-                {loading ? "Cargando..." : "Actualizar"}
-              </Button>
-            </div>
           </div>
 
           <div className="rounded-md border">
@@ -664,6 +877,13 @@ export default function MessagesInboxV2({ userId }: { userId: string }) {
                 counterpartyName={chatName || undefined}
                 counterpartyAvatarUrl={chatAvatar || undefined}
                 onConversationRead={onConversationRead}
+                onClose={() => {
+                  try {
+                    setChatConversationId(null);
+                    setChatName(null);
+                    setChatAvatar(null);
+                  } catch {}
+                }}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

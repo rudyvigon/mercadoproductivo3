@@ -5,6 +5,7 @@ import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import AppShell from "@/components/layout/app-shell";
 import GlobalMobileMenu from "@/components/layout/global-mobile-menu";
+import NotificationsProvider from "@/providers/notifications-provider";
 
 export const metadata: Metadata = {
   title: "Mercado Productivo",
@@ -24,18 +25,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" suppressHydrationWarning>
       <body className={`antialiased ${inter.className} w-full`}>
         <ThemeProvider>
-          <AppShell>
-            {children}
-            <GlobalMobileMenu />
-          </AppShell>
-          {/* Toaster mobile: arriba a la derecha, con offset para no tapar el header */}
-          <div className="sm:hidden">
-            <Toaster richColors theme="light" position="top-right" offset={96} />
-          </div>
-          {/* Toaster desktop: abajo a la derecha */}
-          <div className="hidden sm:block">
-            <Toaster richColors theme="light" position="bottom-right" offset={24} />
-          </div>
+          <NotificationsProvider>
+            <AppShell>
+              {children}
+              <GlobalMobileMenu />
+            </AppShell>
+            {/* Toaster mobile: arriba a la derecha, con offset para no tapar el header */}
+            <div className="sm:hidden">
+              <Toaster richColors theme="light" position="top-right" offset={96} />
+            </div>
+            {/* Toaster desktop: abajo a la derecha */}
+            <div className="hidden sm:block">
+              <Toaster richColors theme="light" position="bottom-right" offset={24} />
+            </div>
+          </NotificationsProvider>
         </ThemeProvider>
       </body>
     </html>

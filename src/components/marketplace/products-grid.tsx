@@ -76,9 +76,11 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
 
   // (se mueve más abajo, después de declarar loadProducts)
 
-  const loadProducts = useCallback(async (reset = false, pageOverride?: number) => {
+  const loadProducts = useCallback(async (
+    { reset = false, page, pageSize }: { reset?: boolean; page: number; pageSize: number }
+  ) => {
     try {
-      const currentPage = reset ? (pageOverride ?? 1) : (pageOverride ?? page);
+      const currentPage = page;
 
       if (reset) {
         // Si hay caché, mostrarla al instante y evitar el flicker de loading
@@ -90,7 +92,7 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
           setLoading(false);
         }
         // Si se está navegando a una página específica, no forzar page=1
-        if (!pageOverride || pageOverride === 1) {
+        if (currentPage === 1) {
           setPage(1);
         }
       } else {
@@ -98,7 +100,7 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
       }
       const params = new URLSearchParams();
       params.set('page', String(currentPage));
-      params.set('pageSize', String(PAGE_SIZE));
+      params.set('pageSize', String(pageSize));
       if (filters.search) params.set('search', filters.search);
       if (filters.category) params.set('category', filters.category);
       params.set('minPrice', String(filters.minPrice ?? 0));
@@ -165,14 +167,14 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [filters, onProductsCountChange, sellerId, excludeProductId, excludeSellerId, pageSize]);
+  }, [filters, onProductsCountChange, sellerId, excludeProductId, excludeSellerId]);
 
   // Cargar productos al cambiar filtros (reset)
   useEffect(() => {
     // Limpiar caché al cambiar filtros para no mezclar resultados
     pageCacheRef.current = {};
-    loadProducts(true, 1);
-  }, [filters, loadProducts]);
+    loadProducts({ reset: true, page: 1, pageSize: PAGE_SIZE });
+  }, [filters, loadProducts, PAGE_SIZE]);
 
   // Navegación de paginación numérica
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -194,7 +196,7 @@ export default function ProductsGrid({ filters, onProductsCountChange, sellerId,
         window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
       }
     }
-    loadProducts(true, n);
+    loadProducts({ reset: true, page: n, pageSize: PAGE_SIZE });
   };
 
   const toggleFavorite = (productId: string) => {

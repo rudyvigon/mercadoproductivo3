@@ -4,6 +4,12 @@ import { createRouteClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(t));
+}
+
 export async function GET(req: Request) {
   const supabase = createRouteClient();
 
@@ -52,11 +58,11 @@ export async function GET(req: Request) {
 
   // 4) Si se provee payment_id, obtener ese authorized_payment
   if (paymentId) {
-    const payRes = await fetch(`https://api.mercadopago.com/authorized_payments/${paymentId}`, {
+    const payRes = await fetchWithTimeout(`https://api.mercadopago.com/authorized_payments/${paymentId}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
       cache: "no-store",
-    });
+    }, 10000);
     if (!payRes.ok) {
       const text = await payRes.text().catch(() => "");
       return NextResponse.json({
@@ -79,11 +85,11 @@ export async function GET(req: Request) {
 
   // 5) Sin payment_id, devolver detalles del preapproval para diagnóstico
   const preUrl = `https://api.mercadopago.com/preapproval/${encodeURIComponent(preapprovalId)}`;
-  const preRes = await fetch(preUrl, {
+  const preRes = await fetchWithTimeout(preUrl, {
     method: "GET",
     headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
     cache: "no-store",
-  });
+  }, 10000);
   const pre = preRes.ok ? await preRes.json().catch(() => null) : null;
 
   return NextResponse.json({

@@ -15,42 +15,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { normalizeRoleFromMetadata } from "@/lib/auth/role";
 import { MenuActionButton } from "@/components/ui/menu-buttons";
-import { useMessagesNotifications } from "@/store/messages-notifications";
-import MessagesPush from "@/components/notifications/messages-push";
-
-// Hook de media query a nivel de módulo (desktop >= 1024px)
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !("matchMedia" in window)) return;
-    const mql = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
-    setMatches(mql.matches);
-    try {
-      mql.addEventListener("change", onChange);
-      return () => mql.removeEventListener("change", onChange);
-    } catch {
-      // compatibilidad antigua (Safari)
-      // @ts-ignore
-      mql.addListener(onChange);
-      return () => {
-        try {
-          // @ts-ignore
-          mql.removeListener(onChange);
-        } catch {}
-      };
-    }
-  }, [query]);
-  return matches;
-}
+import { useNotifications } from "@/providers/notifications-provider";
+ 
 
 export default function SiteHeader() {
-  const isLarge = useMediaQuery("(min-width: 1024px)");
   const [user, setUser] = useState<User | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [profileCompany, setProfileCompany] = useState<string | null>(null);
   const [userLoading, setUserLoading] = useState(true);
-  const { unreadCount, setUnreadCount } = useMessagesNotifications();
+  const { unreadCount } = useNotifications();
   const [accountOpen, setAccountOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -184,81 +157,15 @@ export default function SiteHeader() {
   const accountHref = isSeller ? "/dashboard" : "/profile";
   const accountLabel = isSeller ? "Dashboard" : "Perfil";
   const messagesHref = isSeller ? "/dashboard/messages" : "/mensajes";
-
-  // Badge rojo: mostrar si hay no leídos
-
-  // Carga inicial del contador de no leídos (desktop)
-  useEffect(() => {
-    let active = true;
-    async function loadUnread() {
-      try {
-        if (!user?.id) return;
-        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
-        if (!active) return;
-        if (res.ok) {
-          const j = await res.json();
-          const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
-          const unread = list
-            .filter((c: any) => !c?.hidden_at)
-            .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
-          setUnreadCount(unread);
-        }
-      } catch {
-        // ignorar
-      }
+  const onMessagesPage = useMemo(() => {
+    try {
+      return pathname?.startsWith(messagesHref);
+    } catch {
+      return false;
     }
-    loadUnread();
-    return () => { active = false; };
-  }, [user?.id, setUnreadCount]);
+  }, [pathname, messagesHref]);
 
-  // Polling periódico como respaldo (cada 20s)
-  useEffect(() => {
-    if (!user?.id) return;
-    let timer: any;
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
-        if (res.ok) {
-          const j = await res.json();
-          const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
-          const unread = list
-            .filter((c: any) => !c?.hidden_at)
-            .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
-          setUnreadCount(unread);
-        }
-      } catch {}
-      timer = setTimeout(tick, 5000);
-    };
-    timer = setTimeout(tick, 5000);
-    return () => { try { clearTimeout(timer); } catch {} };
-  }, [user?.id, setUnreadCount]);
-
-  // Re-sincronizar cuando la pestaña vuelve a estar activa
-  useEffect(() => {
-    const onVis = () => {
-      try {
-        if (document.visibilityState === "visible") {
-          // reutiliza la carga inicial
-          (async () => {
-            try {
-              if (!user?.id) return;
-              const res = await fetch(`/api/chat/conversations?includeHidden=true`, { cache: "no-store" });
-              if (res.ok) {
-                const j = await res.json();
-                const list: any[] = Array.isArray(j?.conversations) ? j.conversations : [];
-                const unread = list
-                  .filter((c: any) => !c?.hidden_at)
-                  .reduce((acc: number, it: any) => acc + (Number(it?.unread_count || 0) || 0), 0);
-                setUnreadCount(unread);
-              }
-            } catch {}
-          })();
-        }
-      } catch {}
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [user?.id, setUnreadCount]);
+  // Badge rojo: mostrar si hay no leídos (estado provisto por NotificationsProvider)
 
   async function handleSignOut() {
     // Cerrar menú antes de desloguear
@@ -269,7 +176,7 @@ export default function SiteHeader() {
   }
 
   const navItems = [
-    { href: "/", label: "Marketplace" },
+    { href: "/", label: "Productos" },
     { href: "/vendedores", label: "Vendedores" },
     { href: "/exportadores", label: "Exportadores" },
     { href: "/nosotros", label: "Nosotros" },
@@ -311,6 +218,15 @@ export default function SiteHeader() {
               {item.label}
             </Link>
           ))}
+          {isSeller ? (
+            <Link
+              href="/dashboard/services/new"
+              aria-current={isActive("/dashboard/services/new") ? "page" : undefined}
+              className={linkClasses(isActive("/dashboard/services/new"))}
+            >
+              Cargar servicio
+            </Link>
+          ) : null}
         </nav>
 
         <div className="hidden items-center justify-end gap-2 sm:gap-3 lg:flex">
@@ -321,15 +237,17 @@ export default function SiteHeader() {
             </div>
           ) : user ? (
             <>
-              {/* Suscripciones de notificaciones en tiempo real: solo desktop */}
-              {isLarge && <MessagesPush sellerId={user?.id} messagesHref={messagesHref} />}
-
-              {/* Ícono de mensajes con badge rojo */}
-              <Link href={messagesHref} aria-label="Mensajes" onClick={() => setUnreadCount(0)}>
+              {/* Ícono de mensajes con badge rojo (con accesibilidad) */}
+              <Link href={messagesHref} aria-label="Mensajes">
                 <button
                   className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[#f06d04]/10"
+                  aria-label={unreadCount > 0 ? `Mensajes, ${unreadCount} sin leer` : "Mensajes"}
                 >
                   <MessageSquare className="h-5 w-5" />
+                  {/* Región para lectores de pantalla que anuncia cambios de contador */}
+                  <span className="sr-only" aria-live="polite" aria-atomic="true">
+                    {unreadCount > 0 ? `${unreadCount} mensajes sin leer` : `Sin mensajes nuevos`}
+                  </span>
                   {unreadCount > 0 ? (
                     <span className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full bg-red-500" />
                   ) : null}

@@ -1,11 +1,30 @@
-function isChatV2Enabled(): boolean {
-  const val = String(process.env.NEXT_PUBLIC_FEATURE_CHAT_V2_ENABLED || "");
-  return ["1", "true", "on", "yes"].includes(val.toLowerCase());
+let _ffChecked = false;
+let _ffEnabled = false;
+async function ensureFF(): Promise<void> {
+  if (_ffChecked) return;
+  try {
+    const res = await fetch(`/api/feature-flags`, { cache: "no-store" });
+    if (res.ok) {
+      const j = await res.json();
+      _ffEnabled = Boolean(j?.chatV2Enabled);
+    }
+  } catch {
+    // ignore
+  } finally {
+    _ffChecked = true;
+  }
+}
+function isChatV2EnabledSync(): boolean {
+  return _ffChecked && _ffEnabled;
 }
 
 export async function markMessageDelivered(id: string) {
   try {
-    if (isChatV2Enabled()) {
+    if (! _ffChecked) {
+      // fire and forget
+      void ensureFF();
+    }
+    if (isChatV2EnabledSync()) {
       return;
     }
     await fetch(`/api/messages/${encodeURIComponent(id)}/delivered`, {
@@ -19,7 +38,10 @@ export async function markMessageDelivered(id: string) {
 
 export async function markMessageRead(id: string) {
   try {
-    if (isChatV2Enabled()) {
+    if (! _ffChecked) {
+      void ensureFF();
+    }
+    if (isChatV2EnabledSync()) {
       return;
     }
     await fetch(`/api/messages/${encodeURIComponent(id)}/read`, {
@@ -33,7 +55,10 @@ export async function markMessageRead(id: string) {
 
 export async function markReplyDelivered(id: string) {
   try {
-    if (isChatV2Enabled()) {
+    if (! _ffChecked) {
+      void ensureFF();
+    }
+    if (isChatV2EnabledSync()) {
       return;
     }
     await fetch(`/api/replies/${encodeURIComponent(id)}/delivered`, {
@@ -47,7 +72,10 @@ export async function markReplyDelivered(id: string) {
 
 export async function markReplyRead(id: string) {
   try {
-    if (isChatV2Enabled()) {
+    if (! _ffChecked) {
+      void ensureFF();
+    }
+    if (isChatV2EnabledSync()) {
       return;
     }
     await fetch(`/api/replies/${encodeURIComponent(id)}/read`, {

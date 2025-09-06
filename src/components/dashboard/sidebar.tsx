@@ -2,17 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, LayoutDashboard, Package, User, Menu, X, HomeIcon, MessageSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { MessageSquare } from "lucide-react";
 import { MdHomeWork } from "react-icons/md";
 import { MdVerified } from "react-icons/md";
-import { MdOutlineShoppingCart } from "react-icons/md";
 import { BsFillPersonFill } from "react-icons/bs";
 import { RiShoppingCart2Fill } from "react-icons/ri";
-import { useMessagesNotifications } from "@/store/messages-notifications";
+import { useNotifications } from "@/providers/notifications-provider";
 
 
 const items = [
@@ -52,7 +49,7 @@ export function useMobileSidebar() {
 // Componente de navegación interna
 function SidebarNav({ onItemClick }: { onItemClick?: () => void }) {
   const pathname = usePathname();
-  const { unreadCount } = useMessagesNotifications();
+  const { unreadCount } = useNotifications();
   // Orden alfabético por etiqueta, en español y sin distinguir mayúsculas/acentos
   const navItems = [...items].sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
 

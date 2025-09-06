@@ -22,7 +22,7 @@ export default function SiteFooter() {
           <div>
             <h4 className="text-sm font-semibold">Compañía</h4>
             <ul className="mt-2 space-y-2 text-sm text-white/80">
-              <li><Link href="/" className="hover:text-white">Marketplace</Link></li>
+              <li><Link href="/" className="hover:text-white">Productos</Link></li>
               <li><Link href="/planes" className="hover:text-white">Planes</Link></li>
             </ul>
           </div>

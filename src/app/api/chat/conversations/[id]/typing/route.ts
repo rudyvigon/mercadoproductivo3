@@ -2,11 +2,14 @@ import { NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabase/server";
 import { getPusher } from "@/lib/pusher/server";
 
+// Rate limit in-memory por usuario+conversación (ventana ~1s)
+const typingRateMap: Map<string, number> = new Map();
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-export async function POST(_req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: { id: string } }) {
   if (process.env.FEATURE_CHAT_V2_ENABLED !== "true") {
     return NextResponse.json(
       { error: "CHAT_DESHABILITADO", message: "El sistema de chat v2 está temporalmente deshabilitado." },
@@ -32,23 +35,35 @@ export async function POST(_req: Request, ctx: { params: { id: string } }) {
     if (memErr) return NextResponse.json({ error: "MEMBERSHIP_CHECK_FAILED" }, { status: 500 });
     if (!mem) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
-    const now = new Date().toISOString();
-    const { error: upErr } = await supabase
-      .from("chat_conversation_members")
-      .update({ last_read_at: now, unread_count: 0 })
-      .eq("conversation_id", conversationId)
-      .eq("user_id", user.id);
-    if (upErr) return NextResponse.json({ error: "READ_FAILED", message: upErr.message }, { status: 500 });
+    const json = await req.json().catch(() => ({}));
+    const typing = Boolean(json?.typing);
+    const nowIso = new Date().toISOString();
+
+    // Aplicar rate limiting (1s) por usuario+conversación
+    try {
+      const key = `${user.id}:${conversationId}`;
+      const last = typingRateMap.get(key) || 0;
+      const now = Date.now();
+      if (now - last < 1000) {
+        // Dentro de la ventana: responder ok sin emitir
+        return NextResponse.json({ ok: true, throttled: true });
+      }
+      typingRateMap.set(key, now);
+      // Limpieza best-effort de entradas viejas
+      if (typingRateMap.size > 5000) {
+        typingRateMap.forEach((v, k) => {
+          if (now - v > 60000) typingRateMap.delete(k);
+        });
+      }
+    } catch {}
 
     try {
       const p = getPusher();
-      // Notificar al propio usuario (para refrescos locales)
-      await p.trigger(`private-user-${user.id}`, "chat:conversation:read", { conversation_id: conversationId });
-      // Notificar en el canal de la conversación al resto de miembros
-      await p.trigger(`private-conversation-${conversationId}`, "chat:conversation:read", {
+      await p.trigger(`private-conversation-${conversationId}`, "chat:typing", {
         conversation_id: conversationId,
         user_id: user.id,
-        last_read_at: now,
+        typing,
+        at: nowIso,
       });
     } catch (e) {
       // swallow

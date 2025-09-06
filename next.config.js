@@ -10,6 +10,9 @@ try {
 
 const nextConfig = {
   reactStrictMode: true,
+  // Evita ejecutar ESLint y TypeScript dentro de `next build` (la CI ya corre pasos separados)
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   images: {
     remotePatterns: [
       // Hostname dinámico desde la URL del proyecto Supabase (recomendado)

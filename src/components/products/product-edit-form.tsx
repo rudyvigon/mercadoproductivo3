@@ -738,8 +738,8 @@ useEffect(() => {
           {gallery.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {gallery.map((img) => (
-                <div key={img.id} className="relative z-0 group rounded-lg overflow-hidden border">
-                  <img src={img.url} alt={product.title} className="h-32 w-full object-cover pointer-events-none select-none" />
+                <div key={img.id} className="relative z-0 group rounded-lg overflow-hidden border h-32">
+                  <Image src={img.url} alt={product.title} fill className="object-cover pointer-events-none select-none" />
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); deleteImage(img.id, img.url, { skipConfirm: true }); }}

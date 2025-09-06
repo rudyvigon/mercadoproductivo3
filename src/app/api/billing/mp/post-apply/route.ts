@@ -5,6 +5,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(t));
+}
+
 export async function POST() {
   const supabase = createRouteClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -41,19 +47,19 @@ export async function POST() {
   let nextRenewsAt: string | null = null;
   if (newPreId) {
     try {
-      const putRes = await fetch(`https://api.mercadopago.com/preapproval/${newPreId}`, {
+      const putRes = await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${newPreId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
         body: JSON.stringify({ status: "authorized" }),
-      });
+      }, 10000);
       if (putRes.ok) {
         resumed = true;
         // Obtener detalles del preapproval para calcular próxima renovación
         try {
-          const getRes = await fetch(`https://api.mercadopago.com/preapproval/${newPreId}`, {
+          const getRes = await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${newPreId}`, {
             method: "GET",
             headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
-          });
+          }, 10000);
           if (getRes.ok) {
             const pre = await getRes.json();
             const now = new Date();
@@ -87,11 +93,11 @@ export async function POST() {
 
   if (resumed && oldPreId && oldPreId !== newPreId) {
     try {
-      const cancelRes = await fetch(`https://api.mercadopago.com/preapproval/${oldPreId}`, {
+      const cancelRes = await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${oldPreId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
         body: JSON.stringify({ status: "cancelled" }),
-      });
+      }, 10000);
       if (cancelRes.ok) {
         try {
           await admin.from("billing_events").insert({

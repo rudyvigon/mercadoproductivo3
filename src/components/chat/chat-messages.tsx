@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { normalizeAvatarUrl, initialFrom, avatarAltIncoming, avatarAltOutgoing } from "@/lib/user-display";
@@ -16,13 +16,25 @@ export type ChatItem = {
   avatar_url?: string;
 };
 
-export default function ChatMessages({ items }: { items: ChatItem[] }) {
+export default function ChatMessages({ items, lastReadAt }: { items: ChatItem[]; lastReadAt?: string }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     try {
       bottomRef.current?.scrollIntoView({ block: "end", inline: "nearest" });
     } catch {}
   }, [items]);
+  const lastReadAtMs = useMemo(() => (lastReadAt ? new Date(lastReadAt).getTime() : null), [lastReadAt]);
+  const lastOutgoingReadId = useMemo(() => {
+    if (!lastReadAtMs) return null as string | null;
+    let id: string | null = null;
+    for (const it of items) {
+      if (it.type === "outgoing") {
+        const t = new Date(it.created_at).getTime();
+        if (t <= lastReadAtMs) id = it.id;
+      }
+    }
+    return id;
+  }, [items, lastReadAtMs]);
   return (
     <div className="flex flex-col gap-2">
       {items.map((it, idx) => {
@@ -78,6 +90,9 @@ export default function ChatMessages({ items }: { items: ChatItem[] }) {
                   <span>
                     {new Date(it.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
+                  {it.type === "outgoing" && lastOutgoingReadId === it.id && (
+                    <span className="ml-2 italic">Visto</span>
+                  )}
                 </div>
               </div>
               {it.type === "outgoing" && (
@@ -94,6 +109,3 @@ export default function ChatMessages({ items }: { items: ChatItem[] }) {
     </div>
   );
 }
-
-
-

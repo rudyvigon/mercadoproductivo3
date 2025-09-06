@@ -5,6 +5,12 @@ import { createHmac, timingSafeEqual } from "crypto";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(t));
+}
+
 async function processPreapproval(preapprovalId: string) {
   const admin = createAdminClient();
   const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
@@ -43,13 +49,13 @@ async function processPreapproval(preapprovalId: string) {
   };
 
   try {
-    const res = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
+    const res = await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
       },
       cache: "no-store",
-    });
+    }, 10000);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       try {
@@ -198,11 +204,11 @@ async function processPreapproval(preapprovalId: string) {
         const oldPreId = profile?.mp_preapproval_id && profile.mp_preapproval_id !== id ? profile.mp_preapproval_id : null;
         if (oldPreId) {
           try {
-            await fetch(`https://api.mercadopago.com/preapproval/${oldPreId}`, {
+            await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${oldPreId}`, {
               method: "PUT",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
               body: JSON.stringify({ status: "cancelled" }),
-            });
+            }, 10000);
             await admin
               .from("billing_events")
               .insert({
@@ -238,11 +244,11 @@ async function processPreapproval(preapprovalId: string) {
         // Downgrade: mantener scheduling (no aplicar inmediato). Sólo registramos evento.
         // Intentar pausar el nuevo preapproval para evitar cobros en paralelo
         try {
-          await fetch(`https://api.mercadopago.com/preapproval/${id}`, {
+          await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
             body: JSON.stringify({ status: "paused" }),
-          });
+          }, 10000);
           await admin.from("billing_events").insert({
             user_id: userId,
             kind: "preapproval_paused_on_downgrade",
@@ -308,11 +314,11 @@ async function processAuthorizedPayment(paymentId: string) {
 
   try {
     // 1) Obtener el pago autorizado
-    const payRes = await fetch(`https://api.mercadopago.com/authorized_payments/${paymentId}`, {
+    const payRes = await fetchWithTimeout(`https://api.mercadopago.com/authorized_payments/${paymentId}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
       cache: "no-store",
-    });
+    }, 10000);
     if (!payRes.ok) {
       const text = await payRes.text().catch(() => "");
       try {
@@ -370,11 +376,11 @@ async function processAuthorizedPayment(paymentId: string) {
     }
 
     // 4) Obtener detalles del preapproval para extraer external_reference y frecuencia
-    const preRes = await fetch(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
+    const preRes = await fetchWithTimeout(`https://api.mercadopago.com/preapproval/${preapprovalId}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
       cache: "no-store",
-    });
+    }, 10000);
     if (!preRes.ok) {
       const text = await preRes.text().catch(() => "");
       try {

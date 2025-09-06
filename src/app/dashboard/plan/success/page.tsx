@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import PlanBadge from "@/components/badges/plan-badge";
 import { CheckCircle2, CalendarDays, CreditCard, ArrowRight } from "lucide-react";
+import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -199,12 +200,13 @@ export default async function SuccessPage({ searchParams }: Props) {
           </div>
           {/* Mockup/Ilustración */}
           <div className="relative order-first md:order-last">
-            <div className="aspect-[4/3] w-full overflow-hidden rounded-xl border bg-white shadow-sm">
-              <img
+            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border bg-white shadow-sm">
+              <Image
                 src="https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?q=80&w=1200&auto=format&fit=crop"
                 alt="Celebración de suscripción"
-                className="h-full w-full object-cover"
-                loading="lazy"
+                fill
+                sizes="(min-width: 768px) 50vw, 100vw"
+                className="object-cover"
               />
             </div>
             <div className="pointer-events-none absolute -bottom-3 left-1/2 h-20 w-[80%] -translate-x-1/2 rounded-full bg-orange-200/50 blur-2xl" />
